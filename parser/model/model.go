@@ -11,6 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// model数据 <-> json.
+// 描述元数据如data schema等.
+
 package model
 
 import (

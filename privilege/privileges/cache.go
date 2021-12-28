@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// 权限cache.
+
 package privileges
 
 import (
@@ -269,6 +271,7 @@ type MySQLPrivilege struct {
 }
 
 // FindAllRole is used to find all roles grant to this user.
+// BFS方式搜索树查找RoleGraph所有Role.
 func (p *MySQLPrivilege) FindAllRole(activeRoles []*auth.RoleIdentity) []*auth.RoleIdentity {
 	queue, head := make([]*auth.RoleIdentity, 0, len(activeRoles)), 0
 	queue = append(queue, activeRoles...)
@@ -551,6 +554,7 @@ func (p *MySQLPrivilege) LoadDefaultRoles(ctx sessionctx.Context) error {
 	return p.loadTable(ctx, sqlLoadDefaultRoles, p.decodeDefaultRoleTableRow)
 }
 
+// 通过sql加载权限表.
 func (p *MySQLPrivilege) loadTable(sctx sessionctx.Context, sql string,
 	decodeTableRow func(chunk.Row, []*ast.ResultField) error) error {
 	ctx := context.Background()
@@ -624,6 +628,7 @@ func (record *baseRecord) assignUserOrHost(row chunk.Row, i int, f *ast.ResultFi
 	}
 }
 
+// 解析权限表里每条row.
 func (p *MySQLPrivilege) decodeUserTableRow(row chunk.Row, fs []*ast.ResultField) error {
 	var value UserRecord
 	for i, f := range fs {
@@ -1016,6 +1021,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
+	// 这里搜索查找所有role.
 	roleList := p.FindAllRole(activeRoles)
 	roleList = append(roleList, &auth.RoleIdentity{Username: user, Hostname: host})
 
@@ -1040,6 +1046,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
+	// 直接检查所有 role的 table 权限.
 	for _, r := range roleList {
 		tableRecord := p.matchTables(r.Username, r.Hostname, db, table)
 		if tableRecord != nil {
@@ -1053,6 +1060,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
+	// 直接检查所有 role的 column 权限.
 	columnPriv = 0
 	for _, r := range roleList {
 		columnRecord := p.matchColumns(r.Username, r.Hostname, db, table, column)

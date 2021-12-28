@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// 存储元数据，元数据定义在model.go.
+
 package meta
 
 import (
@@ -323,6 +325,7 @@ func (m *Meta) UpdatePolicy(policy *model.PolicyInfo) error {
 }
 
 // CreateDatabase creates a database with db info.
+// 创建Database, dbInfo.ID -> json(dbInfo)
 func (m *Meta) CreateDatabase(dbInfo *model.DBInfo) error {
 	dbKey := m.dbKey(dbInfo.ID)
 

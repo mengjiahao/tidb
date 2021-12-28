@@ -1472,6 +1472,7 @@ func (do *Domain) NotifyUpdatePrivilege() error {
 		return err
 	}
 	defer sysSessionPool.Put(ctx)
+	// 重新加载权限表内权限到cache.
 	return do.PrivilegeHandle().Update(ctx.(sessionctx.Context))
 }
 

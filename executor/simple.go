@@ -972,6 +972,7 @@ func (e *SimpleExec) executeAlterUser(ctx context.Context, s *ast.AlterUserStmt)
 	return domain.GetDomain(e.ctx).NotifyUpdatePrivilege()
 }
 
+// 执行GrantRoleStmt.
 func (e *SimpleExec) executeGrantRole(ctx context.Context, s *ast.GrantRoleStmt) error {
 	sessionVars := e.ctx.GetSessionVars()
 	for i, user := range s.Users {
@@ -1015,6 +1016,7 @@ func (e *SimpleExec) executeGrantRole(ctx context.Context, s *ast.GrantRoleStmt)
 	sql := new(strings.Builder)
 	for _, user := range s.Users {
 		for _, role := range s.Roles {
+			// 直接插入到 mysql.role_edges.
 			sql.Reset()
 			sqlexec.MustFormatSQL(sql, `INSERT IGNORE INTO %n.%n (FROM_HOST, FROM_USER, TO_HOST, TO_USER) VALUES (%?,%?,%?,%?)`, mysql.SystemDB, mysql.RoleEdgeTable, role.Hostname, role.Username, user.Hostname, user.Username)
 			if _, err := sqlExecutor.ExecuteInternal(context.TODO(), sql.String()); err != nil {

@@ -16,6 +16,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSES/QL-LICENSE file.
 
+// 建立初始化系统表.
+
 package session
 
 import (
