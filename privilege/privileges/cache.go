@@ -78,6 +78,7 @@ func computePrivMask(privs []mysql.PrivilegeType) mysql.PrivilegeType {
 	return mask
 }
 
+// mysql.user Scope columns
 // baseRecord is used to represent a base record in privilege cache,
 // it only store Host and User field, and it should be nested in other record type.
 type baseRecord struct {
@@ -92,13 +93,14 @@ type baseRecord struct {
 	hostIPNet *net.IPNet
 }
 
+// mysql.user Privilege columns
 // UserRecord is used to represent a user record in privilege cache.
 type UserRecord struct {
 	baseRecord
 
 	AuthenticationString string
-	Privileges           mysql.PrivilegeType
-	AccountLocked        bool // A role record when this field is true
+	Privileges           mysql.PrivilegeType // 权限列合并
+	AccountLocked        bool                // A role record when this field is true
 	AuthPlugin           string
 }
 
@@ -143,6 +145,7 @@ const (
 	SslTypeSpecified
 )
 
+// mysql.user Security columns
 // GlobalPrivValue is store json format for priv column in mysql.global_priv.
 type GlobalPrivValue struct {
 	SSLType     SSLType                   `json:"ssl_type,omitempty"`
@@ -186,6 +189,7 @@ func (g *GlobalPrivValue) RequireStr() string {
 	return require
 }
 
+// mysql.db
 type dbRecord struct {
 	baseRecord
 
@@ -196,6 +200,7 @@ type dbRecord struct {
 	dbPatTypes []byte
 }
 
+// mysql.tables_priv
 type tablesPrivRecord struct {
 	baseRecord
 
@@ -207,6 +212,7 @@ type tablesPrivRecord struct {
 	ColumnPriv mysql.PrivilegeType
 }
 
+// mysql.columns_priv
 type columnsPrivRecord struct {
 	baseRecord
 
@@ -226,6 +232,8 @@ type defaultRoleRecord struct {
 }
 
 // roleGraphEdgesTable is used to cache relationship between and role.
+// key is user + "@" + host.
+// 这里成员是*RoleIdentity指针类型，是为了传递成员数据时减少复制代价。
 type roleGraphEdgesTable struct {
 	roleList map[string]*auth.RoleIdentity
 }
@@ -258,11 +266,11 @@ type MySQLPrivilege struct {
 	// This helps in the case that there are a number of users with
 	// non-full privileges (i.e. user.db entries).
 	User          []UserRecord
-	UserMap       map[string][]UserRecord // Accelerate User searching
+	UserMap       map[string][]UserRecord // Accelerate User searching. User->UserRecord.
 	Global        map[string][]globalPrivRecord
 	Dynamic       map[string][]dynamicPrivRecord
 	DB            []dbRecord
-	DBMap         map[string][]dbRecord // Accelerate DB searching
+	DBMap         map[string][]dbRecord // Accelerate DB searching. User->dbRecord.
 	TablesPriv    []tablesPrivRecord
 	TablesPrivMap map[string][]tablesPrivRecord // Accelerate TablesPriv searching
 	ColumnsPriv   []columnsPrivRecord
@@ -271,7 +279,7 @@ type MySQLPrivilege struct {
 }
 
 // FindAllRole is used to find all roles grant to this user.
-// BFS方式搜索树查找RoleGraph所有Role.
+// BFS方式搜索树查找RoleGraph所有上游Role.
 func (p *MySQLPrivilege) FindAllRole(activeRoles []*auth.RoleIdentity) []*auth.RoleIdentity {
 	queue, head := make([]*auth.RoleIdentity, 0, len(activeRoles)), 0
 	queue = append(queue, activeRoles...)
@@ -285,6 +293,7 @@ func (p *MySQLPrivilege) FindAllRole(activeRoles []*auth.RoleIdentity) []*auth.R
 			key := role.Username + "@" + role.Hostname
 			if edgeTable, ok := p.RoleGraph[key]; ok {
 				for _, v := range edgeTable.roleList {
+					// fromUser@fromHost
 					if _, ok := visited[v.String()]; !ok {
 						queue = append(queue, v)
 					}
@@ -423,6 +432,7 @@ func (s sortedUserRecord) Len() int {
 	return len(s)
 }
 
+// UserRecord 排序比较函数. Less(x,y) = true 的话 y在x前.
 func (s sortedUserRecord) Less(i, j int) bool {
 	x := s[i]
 	y := s[j]
@@ -436,6 +446,7 @@ func (s sortedUserRecord) Less(i, j int) bool {
 		return false
 	}
 
+	// User字符序大的排在前.
 	// Then, compare item by user's name value.
 	return x.User < y.User
 }
@@ -443,6 +454,7 @@ func (s sortedUserRecord) Less(i, j int) bool {
 // compareHost compares two host string using some special rules, return value 1, 0, -1 means > = <.
 // TODO: Check how MySQL do it exactly, instead of guess its rules.
 func compareHost(x, y string) int {
+	// 越具体的host排在前. %应该是排名在后的.
 	// The more-specific, the smaller it is.
 	// The pattern '%' means “any host” and is least specific.
 	if y == `%` {
@@ -473,6 +485,7 @@ func compareHost(x, y string) int {
 			// 192.168.199.% smaller than 192.168.%
 			// A not very accurate comparison, compare them by length.
 			if len(x) > len(y) {
+				// x 排在 y前。
 				return -1
 			}
 		}
@@ -482,7 +495,7 @@ func compareHost(x, y string) int {
 	// For other case, the order is nondeterministic.
 	switch x < y {
 	case true:
-		return -1
+		return -1 // 字符序小的在前.
 	case false:
 		return 1
 	}
@@ -759,6 +772,7 @@ func (p *MySQLPrivilege) decodeTablesPrivTableRow(row chunk.Row, fs []*ast.Resul
 			value.assignUserOrHost(row, i, f)
 		}
 	}
+	// 加入tables表.
 	p.TablesPriv = append(p.TablesPriv, value)
 	return nil
 }
@@ -777,6 +791,7 @@ func (p *MySQLPrivilege) decodeRoleEdgesTable(row chunk.Row, fs []*ast.ResultFie
 			toUser = row.GetString(i)
 		}
 	}
+	// 入边邻接表: RoleGraph[toUser@toHost][fromUser@fromHost] = &RoleIdentity{fromUser,fromHost}
 	fromKey := fromUser + "@" + fromHost
 	toKey := toUser + "@" + toHost
 	roleGraph, ok := p.RoleGraph[toKey]
@@ -1021,11 +1036,12 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
-	// 这里搜索查找所有role.
+	// 这里搜索查找所有role. 这个有开销，能否缓存?
 	roleList := p.FindAllRole(activeRoles)
 	roleList = append(roleList, &auth.RoleIdentity{Username: user, Hostname: host})
 
 	var userPriv, dbPriv, tablePriv, columnPriv mysql.PrivilegeType
+	// 直接检查所有role的 user 权限.
 	for _, r := range roleList {
 		userRecord := p.matchUser(r.Username, r.Hostname)
 		if userRecord != nil {
@@ -1036,6 +1052,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
+	// 直接检查所有role的 db 权限.
 	for _, r := range roleList {
 		dbRecord := p.matchDB(r.Username, r.Hostname, db)
 		if dbRecord != nil {
@@ -1046,7 +1063,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
-	// 直接检查所有 role的 table 权限.
+	// 直接检查所有role的 table 权限.
 	for _, r := range roleList {
 		tableRecord := p.matchTables(r.Username, r.Hostname, db, table)
 		if tableRecord != nil {
@@ -1060,7 +1077,7 @@ func (p *MySQLPrivilege) RequestVerification(activeRoles []*auth.RoleIdentity, u
 		return true
 	}
 
-	// 直接检查所有 role的 column 权限.
+	// 直接检查所有role的 column 权限.
 	columnPriv = 0
 	for _, r := range roleList {
 		columnRecord := p.matchColumns(r.Username, r.Hostname, db, table, column)

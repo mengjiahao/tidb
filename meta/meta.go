@@ -45,6 +45,7 @@ var (
 	policyIDMutex sync.Mutex
 )
 
+// mjh: 外层是hash，内层是kv.
 // Meta structure:
 //	NextGlobalID -> int64
 //	SchemaVersion -> int64
@@ -514,6 +515,7 @@ func (m *Meta) UpdateTable(dbID int64, tableInfo *model.TableInfo) error {
 }
 
 // ListTables shows all tables in database.
+// 可用于进行Table存在性检查.
 func (m *Meta) ListTables(dbID int64) ([]*model.TableInfo, error) {
 	dbKey := m.dbKey(dbID)
 	if err := m.checkDBExists(dbKey); err != nil {

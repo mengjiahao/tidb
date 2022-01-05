@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// mjh: KV层接口.
+
 package kv
 
 import (

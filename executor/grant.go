@@ -226,6 +226,7 @@ func (e *GrantExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return err
 	}
 	isCommit = true
+	// 通知更新cache
 	return domain.GetDomain(e.ctx).NotifyUpdatePrivilege()
 }
 
@@ -320,6 +321,7 @@ func initDBPrivEntry(ctx sessionctx.Context, user string, host string, db string
 	return err
 }
 
+// 这里插入数据进 mysql.tables_priv
 // initTablePrivEntry inserts a new row into mysql.Tables_priv with empty privilege.
 func initTablePrivEntry(ctx sessionctx.Context, user string, host string, db string, tbl string) error {
 	_, err := ctx.(sqlexec.SQLExecutor).ExecuteInternal(context.Background(), `INSERT INTO %n.%n (Host, User, DB, Table_name, Table_priv, Column_priv) VALUES (%?, %?, %?, %?, '', '')`, mysql.SystemDB, mysql.TablePrivTable, host, user, db, tbl)

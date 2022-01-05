@@ -36,6 +36,7 @@ import (
 )
 
 // Builder builds a new InfoSchema.
+// 会构造一个内存的元数据infoSchema放入cache.
 type Builder struct {
 	is *infoSchema
 	// TODO: store is only used by autoid allocators

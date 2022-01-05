@@ -93,6 +93,7 @@ func (t *TxStructure) HGetInt64(key []byte, field []byte) (int64, error) {
 }
 
 func (t *TxStructure) updateHash(key []byte, field []byte, fn func(oldValue []byte) ([]byte, error)) error {
+	// 再包装一些元数据字段.
 	dataKey := t.encodeHashDataKey(key, field)
 	oldValue, err := t.loadHashValue(dataKey)
 	if err != nil {

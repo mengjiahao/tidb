@@ -33,6 +33,8 @@
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
 
+// mjh: mysql协议层.
+
 package server
 
 import (
@@ -1183,6 +1185,7 @@ func (cc *clientConn) addMetrics(cmd byte, startTime time.Time, err error) {
 // dispatch handles client request based on command which is the first byte of the data.
 // It also gets a token from server which is used to limit the concurrently handling clients.
 // The most frequently used command is ComQuery.
+// 请求分发.
 func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	defer func() {
 		// reset killed for each request
@@ -1207,6 +1210,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	cc.mu.cancelFunc = cancelFunc
 	cc.mu.Unlock()
 
+	// mysql query: |cmd|query|
 	cc.lastPacket = data
 	cmd := data[0]
 	data = data[1:]
@@ -1262,6 +1266,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 		mysql.ComSetOption, mysql.ComChangeUser:
 		cc.ctx.SetProcessInfo("", t, cmd, 0)
 	case mysql.ComInitDB:
+		// 组装成 use database.
 		cc.ctx.SetProcessInfo("use "+dataStr, t, cmd, 0)
 	}
 
@@ -1283,6 +1288,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 		// Input payload may end with byte '\0', we didn't find related mysql document about it, but mysql
 		// implementation accept that case. So trim the last '\0' here as if the payload an EOF string.
 		// See http://dev.mysql.com/doc/internals/en/com-query.html
+		// 包括 CRUD, select database(), show create table, commit, prepare, show variables like
 		if len(data) > 0 && data[len(data)-1] == 0 {
 			data = data[:len(data)-1]
 			dataStr = string(hack.String(data))

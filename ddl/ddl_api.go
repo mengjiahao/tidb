@@ -16,6 +16,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSES/QL-LICENSE file.
 
+// mjh: 提供DDL CRUD的API，供 Executor 调用。主要功能是封装 DDL 操作的 job 然后存入 DDL job queue (doDDLJob)，等待 job 执行完成后返回.
+
 package ddl
 
 import (
@@ -1883,7 +1885,7 @@ func BuildSessionTemporaryTableInfo(ctx sessionctx.Context, is infoschema.InfoSc
 	return tbInfo, err
 }
 
-// buildTableInfoWithStmt builds model.TableInfo from a SQL statement without validity check
+// buildTableInfoWithStmt builds model.TableInfo from a AST SQL statement without validity check
 func buildTableInfoWithStmt(ctx sessionctx.Context, s *ast.CreateTableStmt, dbCharset, dbCollate string, placementPolicyRef *model.PolicyRefInfo, directPlacementOpts *model.PlacementSettings) (*model.TableInfo, error) {
 	colDefs := s.Cols
 	tableCharset, tableCollate, err := getCharsetAndCollateInTableOption(0, s.Options)
@@ -1997,7 +1999,7 @@ func (d *ddl) CreateTable(ctx sessionctx.Context, s *ast.CreateTableStmt) (err e
 		}
 	}
 
-	// build tableInfo
+	// build tableInfo from AST stmt.
 	var tbInfo *model.TableInfo
 	if s.ReferTable != nil {
 		tbInfo, err = buildTableInfoWithLike(ctx, ident, referTbl.Meta(), s)
@@ -2099,6 +2101,7 @@ func (d *ddl) CreateTableWithInfo(
 		actionType = model.ActionCreateTable
 	}
 
+	// 构造1个DDL任务.
 	job := &model.Job{
 		SchemaID:   schema.ID,
 		TableID:    tbInfo.ID,
@@ -2108,6 +2111,7 @@ func (d *ddl) CreateTableWithInfo(
 		Args:       args,
 	}
 
+	// 将DDL任务加入到KV层的job queue，让owner去处理.
 	err = d.doDDLJob(ctx, job)
 	if err != nil {
 		// table exists, but if_not_exists flags is true, so we ignore this error.
@@ -4549,6 +4553,7 @@ func (d *ddl) ModifyColumn(ctx context.Context, sctx sessionctx.Context, ident a
 
 func (d *ddl) AlterColumn(ctx sessionctx.Context, ident ast.Ident, spec *ast.AlterTableSpec) error {
 	specNewColumn := spec.NewColumns[0]
+	// 涉及到读cache元数据操作。
 	is := d.infoCache.GetLatest()
 	schema, ok := is.SchemaByName(ident.Schema)
 	if !ok {

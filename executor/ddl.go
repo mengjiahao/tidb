@@ -84,6 +84,7 @@ func (e *DDLExec) getLocalTemporaryTable(schema model.CIStr, table model.CIStr) 
 }
 
 // Next implements the Executor Next interface.
+// mjh: DDL执行器, 执行DDL语句.
 func (e *DDLExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if e.done {
 		return nil
@@ -334,6 +335,7 @@ func (e *DDLExec) executeAlterDatabase(s *ast.AlterDatabaseStmt) error {
 	return err
 }
 
+// 创建表，参数是AST Stmt，调用 ddl_api.CreateTable。
 func (e *DDLExec) executeCreateTable(s *ast.CreateTableStmt) error {
 	err := domain.GetDomain(e.ctx).DDL().CreateTable(e.ctx, s)
 	return err

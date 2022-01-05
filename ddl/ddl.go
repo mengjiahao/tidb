@@ -16,6 +16,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSES/QL-LICENSE file.
 
+// mjh: 包含 DDL 接口定义.
+
 package ddl
 
 import (

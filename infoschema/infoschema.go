@@ -31,6 +31,7 @@ import (
 // It works as a in memory cache and doesn't handle any schema change.
 // InfoSchema is read-only, and the returned value is a copy.
 // TODO: add more methods to retrieve tables and columns.
+// mjh: 在TiDB数据中，元数据cache都是只读的，不处理更新，更新底层数据后重新加载cache.
 type InfoSchema interface {
 	SchemaByName(schema model.CIStr) (*model.DBInfo, bool)
 	SchemaExists(schema model.CIStr) bool
