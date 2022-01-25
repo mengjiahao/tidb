@@ -10964,7 +10964,7 @@ WithReadLockOpt:
 		$$ = true
 	}
 
-// Statement分类.
+// Statement分类
 Statement:
 	EmptyStmt
 |	AdminStmt

@@ -34,7 +34,7 @@ var (
 // InfoCache handles information schema, including getting and setting.
 // The cache behavior, however, is transparent and under automatic management.
 // It only promised to cache the infoschema, if it is newer than all the cached.
-// mjh: 元数据的cache.
+// mjh: 元数据的InfoCache, 有读写锁保护.
 type InfoCache struct {
 	mu sync.RWMutex
 	// cache is sorted by SchemaVersion in descending order

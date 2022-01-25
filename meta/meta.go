@@ -182,6 +182,7 @@ func (m *Meta) policyKey(policyID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mPolicyPrefix, policyID))
 }
 
+// DB:dbID
 func (m *Meta) dbKey(dbID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mDBPrefix, dbID))
 }
@@ -198,6 +199,7 @@ func (m *Meta) autoRandomTableIDKey(tableID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mRandomIDPrefix, tableID))
 }
 
+// Table:tableID
 func (m *Meta) tableKey(tableID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mTablePrefix, tableID))
 }
@@ -360,13 +362,13 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 
 // CreateTableOrView creates a table with tableInfo in database.
 func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
-	// Check if db exists.
+	// Check if db exists. DB:dbID
 	dbKey := m.dbKey(dbID)
 	if err := m.checkDBExists(dbKey); err != nil {
 		return errors.Trace(err)
 	}
 
-	// Check if table exists.
+	// Check if table exists. Table:tableID
 	tableKey := m.tableKey(tableInfo.ID)
 	if err := m.checkTableNotExists(dbKey, tableKey); err != nil {
 		return errors.Trace(err)
@@ -376,7 +378,7 @@ func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
+	// (DB:dbID,Table:tableID)->data
 	return m.txn.HSet(dbKey, tableKey, data)
 }
 

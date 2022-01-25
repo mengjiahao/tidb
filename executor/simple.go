@@ -677,6 +677,7 @@ func (e *SimpleExec) executeRevokeRole(ctx context.Context, s *ast.RevokeRoleStm
 				role.Hostname = "%"
 			}
 			sql.Reset()
+			// 在这里删除授权关系。
 			sqlexec.MustFormatSQL(sql, `DELETE IGNORE FROM %n.%n WHERE FROM_HOST=%? and FROM_USER=%? and TO_HOST=%? and TO_USER=%?`, mysql.SystemDB, mysql.RoleEdgeTable, role.Hostname, role.Username, user.Hostname, user.Username)
 			if _, err := sqlExecutor.ExecuteInternal(context.TODO(), sql.String()); err != nil {
 				if _, err := sqlExecutor.ExecuteInternal(context.TODO(), "rollback"); err != nil {

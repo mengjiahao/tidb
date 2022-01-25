@@ -347,6 +347,7 @@ func (e *GrantExec) grantGlobalPriv(ctx sessionctx.Context, user *ast.UserSpec) 
 	return err
 }
 
+// GlobalPriv 与 SSLType 有关.
 func tlsOption2GlobalPriv(tlsOptions []*ast.TLSOption) (priv []byte, err error) {
 	if len(tlsOptions) == 0 {
 		priv = []byte("{}")
@@ -595,6 +596,7 @@ func (e *GrantExec) checkPerformanceSchemaPriv(privType mysql.PrivilegeType) boo
 
 // composeGlobalPrivUpdate composes update stmt assignment list string for global scope privilege update.
 func composeGlobalPrivUpdate(sql *strings.Builder, priv mysql.PrivilegeType, value string) error {
+	// 注意这里 AllPriv 需要转化，便于进行权限检查/合并操作.
 	if priv != mysql.AllPriv {
 		if priv != mysql.GrantPriv && !mysql.AllGlobalPrivs.Has(priv) {
 			return ErrWrongUsage.GenWithStackByArgs("GLOBAL GRANT", "NON-GLOBAL PRIVILEGES")

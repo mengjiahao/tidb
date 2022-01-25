@@ -420,6 +420,7 @@ func (s *session) StoreIndexUsage(tblID int64, idxID int64, rowsSelected int64) 
 }
 
 // FieldList returns fields list of a table.
+// 注意这里从InfoSchema中获取元数据ColumnInfo等，返回 ast.ResultField。
 func (s *session) FieldList(tableName string) ([]*ast.ResultField, error) {
 	is := s.GetInfoSchema().(infoschema.InfoSchema)
 	dbName := model.NewCIStr(s.GetSessionVars().CurrentDB)
@@ -1555,6 +1556,7 @@ func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlex
 
 	// Transform abstract syntax tree to a physical plan(stored in executor.ExecStmt).
 	compiler := executor.Compiler{Ctx: s}
+	// 编译成可执行计划.
 	stmt, err := compiler.Compile(ctx, stmtNode)
 	if err != nil {
 		s.rollbackOnError(ctx)

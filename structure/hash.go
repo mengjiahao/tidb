@@ -92,6 +92,7 @@ func (t *TxStructure) HGetInt64(key []byte, field []byte) (int64, error) {
 	return n, errors.Trace(err)
 }
 
+// 将hash转为kv，将参数key+field作为KV层数据的key，并执行更新 (key+field)->(newValue=fn(oldValue)).
 func (t *TxStructure) updateHash(key []byte, field []byte, fn func(oldValue []byte) ([]byte, error)) error {
 	// 再包装一些元数据字段.
 	dataKey := t.encodeHashDataKey(key, field)

@@ -2517,6 +2517,7 @@ func splitWhere(where ast.ExprNode) []ast.ExprNode {
 	return conditions
 }
 
+// 构造show stmt的可执行计划.
 func (b *PlanBuilder) buildShow(ctx context.Context, show *ast.ShowStmt) (Plan, error) {
 	p := LogicalShow{
 		ShowContents: ShowContents{
@@ -4244,6 +4245,7 @@ func buildShowSchema(s *ast.ShowStmt, isView bool, isSequence bool) (schema *exp
 		ftypes = []byte{mysql.TypeVarchar, mysql.TypeVarchar, mysql.TypeLonglong,
 			mysql.TypeVarchar, mysql.TypeVarchar, mysql.TypeLonglong}
 	case ast.ShowCreateTable, ast.ShowCreateSequence:
+		// 这里设置show create table返回结果的列名.
 		if isSequence {
 			names = []string{"Sequence", "Create Sequence"}
 		} else if isView {

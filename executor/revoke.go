@@ -63,6 +63,7 @@ func (e *RevokeExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	e.done = true
 
 	// Commit the old transaction, like DDL.
+	// 通过 ctx.NewTxn 与 defer ctx.SetInTxn(false) 包装事务的开启完成。
 	if err := e.ctx.NewTxn(ctx); err != nil {
 		return err
 	}
@@ -270,6 +271,7 @@ func (e *RevokeExec) revokeColumnPriv(internalSession sessionctx.Context, priv *
 	}
 	sql := new(strings.Builder)
 	for _, c := range priv.Cols {
+		// revoke的列必须在表内存在.
 		col := table.FindCol(tbl.Cols(), c.Name.L)
 		if col == nil {
 			return errors.Errorf("Unknown column: %s", c)

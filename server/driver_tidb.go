@@ -358,6 +358,7 @@ func (trs *tidbResultSet) Columns() []*ColumnInfo {
 	return trs.columns
 }
 
+// ResultSet的ColumnInfo应该是由ast.ResultField转换来的。
 func convertColumnInfo(fld *ast.ResultField) (ci *ColumnInfo) {
 	ci = &ColumnInfo{
 		Name:    fld.ColumnAsName.O,

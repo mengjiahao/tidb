@@ -1703,6 +1703,7 @@ func doDDLWorks(s Session) {
 // TODO: sanitize.
 func doDMLWorks(s Session) {
 	mustExecute(s, "BEGIN")
+	// 增加root用户，赋予全部权限.
 	if config.GetGlobalConfig().Security.SecureBootstrap {
 		// If secure bootstrap is enabled, we create a root@localhost account which can login with auth_socket.
 		// i.e. mysql -S /tmp/tidb.sock -uroot

@@ -151,6 +151,7 @@ func (w *worker) close() {
 
 // start is used for async online schema changing, it will try to become the owner firstly,
 // then wait or pull the job queue to handle a schema change job.
+// ddl worker执行DDL任务.
 func (w *worker) start(d *ddlCtx) {
 	logutil.Logger(w.logCtx).Info("[ddl] start DDL worker")
 	defer w.wg.Done()
@@ -195,6 +196,7 @@ func (w *worker) start(d *ddlCtx) {
 		}
 
 		rewatchCnt = 0
+		// 尝试从job queue内取出任务执行.
 		err := w.handleDDLJobQueue(d)
 		if err != nil {
 			logutil.Logger(w.logCtx).Warn("[ddl] handle DDL job failed", zap.Error(err))

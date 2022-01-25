@@ -432,7 +432,7 @@ func (s sortedUserRecord) Len() int {
 	return len(s)
 }
 
-// UserRecord 排序比较函数. Less(x,y) = true 的话 y在x前.
+// UserRecord 排序比较函数. Less(x,y) = true, 保持顺序不变.
 func (s sortedUserRecord) Less(i, j int) bool {
 	x := s[i]
 	y := s[j]
@@ -446,7 +446,7 @@ func (s sortedUserRecord) Less(i, j int) bool {
 		return false
 	}
 
-	// User字符序大的排在前.
+	// User字典序大的排在后。
 	// Then, compare item by user's name value.
 	return x.User < y.User
 }
@@ -485,7 +485,7 @@ func compareHost(x, y string) int {
 			// 192.168.199.% smaller than 192.168.%
 			// A not very accurate comparison, compare them by length.
 			if len(x) > len(y) {
-				// x 排在 y前。
+				// x 排在 y前。越具体的越在前.
 				return -1
 			}
 		}
@@ -841,6 +841,7 @@ func (p *MySQLPrivilege) decodeColumnsPrivTableRow(row chunk.Row, fs []*ast.Resu
 			value.assignUserOrHost(row, i, f)
 		}
 	}
+	// 加入到ColumnsPriv.
 	p.ColumnsPriv = append(p.ColumnsPriv, value)
 	return nil
 }
@@ -1136,6 +1137,7 @@ func (p *MySQLPrivilege) DBIsVisible(user, host, db string) bool {
 	return false
 }
 
+// show grants实现.
 func (p *MySQLPrivilege) showGrants(user, host string, roles []*auth.RoleIdentity) []string {
 	var gs []string
 	var sortFromIdx int

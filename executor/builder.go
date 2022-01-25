@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// 构造执行计划.
+
 package executor
 
 import (
@@ -186,7 +188,7 @@ func (b *executorBuilder) build(p plannercore.Plan) Executor {
 		return b.buildShowSlow(v)
 	case *plannercore.PhysicalShow:
 		return b.buildShow(v)
-	case *plannercore.Simple:
+	case *plannercore.Simple: // 简单的语句直接转为 Executor.
 		return b.buildSimple(v)
 	case *plannercore.PhysicalSimpleWrapper:
 		return b.buildSimple(&v.Inner)
@@ -752,6 +754,7 @@ func (b *executorBuilder) buildShow(v *plannercore.PhysicalShow) Executor {
 	return e
 }
 
+// 直接将简单的SQL比如grant 转化为Executor.
 func (b *executorBuilder) buildSimple(v *plannercore.Simple) Executor {
 	switch s := v.Statement.(type) {
 	case *ast.GrantStmt:
@@ -931,6 +934,7 @@ func (b *executorBuilder) buildReplace(vals *InsertValues) Executor {
 	return replaceExec
 }
 
+// 将 GrantStmt 转为 GrantExec.
 func (b *executorBuilder) buildGrant(grant *ast.GrantStmt) Executor {
 	e := &GrantExec{
 		baseExecutor: newBaseExecutor(b.ctx, nil, 0),

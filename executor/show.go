@@ -415,6 +415,7 @@ func (e *ShowExec) fetchShowOpenTables() error {
 	return nil
 }
 
+// show tables.
 func (e *ShowExec) fetchShowTables() error {
 	checker := privilege.GetPrivilegeManager(e.ctx)
 	if checker != nil && e.ctx.GetSessionVars().User != nil {
@@ -1149,6 +1150,7 @@ func (e *ShowExec) fetchShowClusterConfigs(ctx context.Context) error {
 	return nil
 }
 
+// show create table.
 func (e *ShowExec) fetchShowCreateTable() error {
 	tb, err := e.getTable()
 	if err != nil {
@@ -1486,6 +1488,7 @@ func (e *ShowExec) fetchShowCreateUser(ctx context.Context) error {
 	return nil
 }
 
+// show grants调用.
 func (e *ShowExec) fetchShowGrants() error {
 	vars := e.ctx.GetSessionVars()
 	checker := privilege.GetPrivilegeManager(e.ctx)
@@ -1677,6 +1680,7 @@ func (e *ShowExec) tableAccessDenied(access string, table string) error {
 	return ErrTableaccessDenied.GenWithStackByArgs(access, u, h, table)
 }
 
+// 加入到内部的ResultSet.
 func (e *ShowExec) appendRow(row []interface{}) {
 	for i, col := range row {
 		if col == nil {

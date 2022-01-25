@@ -185,7 +185,7 @@ func (do *Domain) fetchPolicies(m *meta.Meta) ([]*model.PolicyInfo, error) {
 	return allPolicies, nil
 }
 
-// 从meta中读取元数据加载到DBInfo.
+// 从meta中读取元数据加载到DBInfo, 先调用meta.ListDatabases.
 func (do *Domain) fetchAllSchemasWithTables(m *meta.Meta) ([]*model.DBInfo, error) {
 	allSchemas, err := m.ListDatabases()
 	if err != nil {
@@ -224,6 +224,7 @@ func (do *Domain) splitForConcurrentFetch(schemas []*model.DBInfo) [][]*model.DB
 	return splitted
 }
 
+// 主要是调用 meta.ListTables 拉取元数据信息.
 func (do *Domain) fetchSchemasWithTables(schemas []*model.DBInfo, m *meta.Meta, done chan error) {
 	for _, di := range schemas {
 		if di.State != model.StatePublic {

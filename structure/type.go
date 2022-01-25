@@ -60,6 +60,7 @@ func (t *TxStructure) encodeHashMetaKey(key []byte) kv.Key {
 	return codec.EncodeUint(ek, uint64(HashMeta))
 }
 
+// ek: t.prefix|key|'h'|field
 func (t *TxStructure) encodeHashDataKey(key []byte, field []byte) kv.Key {
 	ek := make([]byte, 0, len(t.prefix)+codec.EncodedBytesLength(len(key))+8+codec.EncodedBytesLength(len(field)))
 	ek = append(ek, t.prefix...)
