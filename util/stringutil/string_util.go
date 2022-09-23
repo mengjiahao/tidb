@@ -153,6 +153,7 @@ func CompilePattern(pattern string, escape byte) (patWeights []rune, patTypes []
 
 // CompilePatternInner handles escapes and wild cards convert pattern characters and
 // pattern types.
+// pattern 可以是 127.0.0.%。
 func CompilePatternInner(pattern string, escape byte) (patWeights []rune, patTypes []byte) {
 	runes := []rune(pattern)
 	escapeRune := rune(escape)
@@ -167,6 +168,7 @@ func CompilePatternInner(pattern string, escape byte) (patWeights []rune, patTyp
 		case escapeRune:
 			tp = PatMatch
 			if i < lenRunes-1 {
+				// 跳过 escapeRune.
 				i++
 				r = runes[i]
 			}
@@ -180,14 +182,16 @@ func CompilePatternInner(pattern string, escape byte) (patWeights []rune, patTyp
 				tp = PatOne
 			}
 		case '%':
-			// %% => %
+			// %% => %. 缩减%
 			if patLen > 0 && patTypes[patLen-1] == PatAny {
 				continue
 			}
 			tp = PatAny
 		default:
+			// 默认也是普通字符.
 			tp = PatMatch
 		}
+		// 记录每个有效的模式匹配字符.
 		patWeights[patLen] = r
 		patTypes[patLen] = tp
 		patLen++
@@ -212,6 +216,7 @@ func matchRune(a, b rune) bool {
 }
 
 // CompileLike2Regexp convert a like `lhs` to a regular expression
+// 将 pattern user% 转为 user*。
 func CompileLike2Regexp(str string) string {
 	patChars, patTypes := CompilePattern(str, '\\')
 	var result []rune
@@ -250,12 +255,14 @@ func DoMatchInner(str string, patWeights []rune, patTypes []byte, matcher func(a
 		if pIdx < len(patWeights) {
 			switch patTypes[pIdx] {
 			case PatMatch:
+				// 普通字符直接匹配.
 				if rIdx < lenRunes && matcher(runes[rIdx], patWeights[pIdx]) {
 					pIdx++
 					rIdx++
 					continue
 				}
 			case PatOne:
+				// 任意字符均可匹配.
 				if rIdx < lenRunes {
 					pIdx++
 					rIdx++
@@ -265,6 +272,7 @@ func DoMatchInner(str string, patWeights []rune, patTypes []byte, matcher func(a
 				// Try to match at sIdx.
 				// If that doesn't work out,
 				// restart at sIdx+1 next.
+				// 查看pattern %后字符与str是否匹配.
 				nextPIdx = pIdx
 				nextRIdx = rIdx + 1
 				pIdx++
@@ -273,6 +281,7 @@ func DoMatchInner(str string, patWeights []rune, patTypes []byte, matcher func(a
 		}
 		// Mismatch. Maybe restart.
 		if 0 < nextRIdx && nextRIdx <= lenRunes {
+			// str不可匹配%后面的模式时，%吃进一个sIdx, sIdx移动到下一个
 			pIdx = nextPIdx
 			rIdx = nextRIdx
 			continue

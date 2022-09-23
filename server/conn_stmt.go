@@ -189,6 +189,7 @@ func (cc *clientConn) handleStmtExecute(ctx context.Context, data []byte) (err e
 			paramValues = data[pos:]
 			// Just the first StmtExecute packet contain parameters type,
 			// we need save it for further use.
+			// 注意: executeBatch 只有第一个COM_EXECUTE 消息有 paramTypes，因此需要存储在stmt.
 			stmt.SetParamsType(paramTypes)
 		} else {
 			paramValues = data[pos+1:]
