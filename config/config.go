@@ -61,9 +61,9 @@ const (
 	// DefStatusPort is the default status port of TiDB
 	DefStatusPort = 10080
 	// DefHost is the default host of TiDB
-	DefHost = "0.0.0.0"
+	DefHost = "127.0.0.1"
 	// DefStatusHost is the default status host of TiDB
-	DefStatusHost = "0.0.0.0"
+	DefStatusHost = "127.0.0.1"
 	// DefTableColumnCountLimit is limit of the number of columns in a table
 	DefTableColumnCountLimit = 1017
 	// DefMaxOfTableColumnCountLimit is maximum limitation of the number of columns in a table
