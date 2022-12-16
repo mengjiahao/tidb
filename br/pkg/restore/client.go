@@ -1958,6 +1958,7 @@ func (rc *Client) GenGlobalIDs(ctx context.Context, n int) ([]int64, error) {
 }
 
 // UpdateSchemaVersion updates schema version by transaction way.
+// 更新 etcd 中 DDLGlobalSchemaVersion 全局版本号
 func (rc *Client) UpdateSchemaVersion(ctx context.Context) error {
 	storage := rc.GetDomain().Store()
 	var schemaVersion int64

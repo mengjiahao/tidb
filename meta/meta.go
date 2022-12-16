@@ -43,6 +43,10 @@ var (
 	policyIDMutex sync.Mutex
 )
 
+// metadb 存储元数据；
+// 注意某一时刻 metadb 中只有一个最新的schema？
+// 注意这是 KV + KKV 的格式；
+
 // Meta structure:
 //	NextGlobalID -> int64
 //	SchemaVersion -> int64
@@ -60,7 +64,7 @@ var (
 
 var (
 	mMetaPrefix       = []byte("m")
-	mNextGlobalIDKey  = []byte("NextGlobalID")
+	mNextGlobalIDKey  = []byte("NextGlobalID") // 初始化是0？
 	mSchemaVersionKey = []byte("SchemaVersionKey")
 	mDBs              = []byte("DBs")
 	mDBPrefix         = "DB"
@@ -114,8 +118,8 @@ var (
 
 // Meta is for handling meta information in a transaction.
 type Meta struct {
-	txn        *structure.TxStructure
-	StartTS    uint64 // StartTS is the txn's start TS.
+	txn        *structure.TxStructure // hash + list 原子操作接口，注意不是事务操作;
+	StartTS    uint64                 // StartTS is the txn's start TS.
 	jobListKey JobListKeyType
 }
 
@@ -149,11 +153,13 @@ func (m *Meta) GenGlobalID() (int64, error) {
 	return m.txn.Inc(mNextGlobalIDKey, 1)
 }
 
+// 注意 metadb 有批量获取全局id的接口;
 // GenGlobalIDs generates the next n global IDs.
 func (m *Meta) GenGlobalIDs(n int) ([]int64, error) {
-	globalIDMutex.Lock()
+	globalIDMutex.Lock() // 本地并发防止
 	defer globalIDMutex.Unlock()
 
+	// 远程获取
 	newID, err := m.txn.Inc(mNextGlobalIDKey, int64(n))
 	if err != nil {
 		return nil, err
@@ -339,11 +345,14 @@ func (m *Meta) GetAutoIDAccessors(dbID, tableID int64) AutoIDAccessors {
 }
 
 // GetSchemaVersion gets current global schema version.
+// 从 metadb 中获取 SchemaVersionKey
 func (m *Meta) GetSchemaVersion() (int64, error) {
 	return m.txn.GetInt64(mSchemaVersionKey)
 }
 
 // GenSchemaVersion generates next schema version.
+// metadb SchemaVersionKey 自增;
+// 这个 SchemaVersionKey 还不是全局的 schema version 吗? 只是个 version generator?
 func (m *Meta) GenSchemaVersion() (int64, error) {
 	return m.txn.Inc(mSchemaVersionKey, 1)
 }
@@ -467,6 +476,9 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 }
 
 // CreateTableOrView creates a table with tableInfo in database.
+// 由于是共享存储，直接在 metadb 存储元数据信息 (dbKey, tableKey, tableInfo)
+// sql: create table tb1 (id INTEGER NOT NULL, name VARCHAR(120), primary key(id)) partition by hash(id) partitions 2;
+// daKey: DB:1, tableKey: Table:147, data: {"id":147,"name":{"O":"tb1","L":"tb1"},"charset":"utf8mb4","collate":"utf8mb4_bin","cols":[{"id":1,"name":{"O":"id","L":"id"},"offset":0,"origin_default":null,"origin_default_bit":null,"default":null,"default_bit":null,"default_is_expr":false,"generated_expr_string":"","generated_stored":false,"dependences":null,"type":{"Tp":3,"Flag":4099,"Flen":11,"Decimal":0,"Charset":"binary","Collate":"binary","Elems":null},"state":5,"comment":"","hidden":false,"change_state_info":null,"version":2},{"id":2,"name":{"O":"name","L":"name"},"offset":1,"origin_default":null,"origin_default_bit":null,"default":null,"default_bit":null,"default_is_expr":false,"generated_expr_string":"","generated_stored":false,"dependences":null,"type":{"Tp":15,"Flag":0,"Flen":120,"Decimal":0,"Charset":"utf8mb4","Collate":"utf8mb4_bin","Elems":null},"state":5,"comment":"","hidden":false,"change_state_info":null,"version":2}],"index_info":null,"constraint_info":null,"fk_info":null,"state":5,"pk_is_handle":true,"is_common_handle":false,"common_handle_version":0,"comment":"","auto_inc_id":0,"auto_id_cache":0,"auto_rand_id":0,"max_col_id":2,"max_idx_id":0,"max_cst_id":0,"update_timestamp":437925487334916096,"ShardRowIDBits":0,"max_shard_row_id_bits":0,"auto_random_bits":0,"pre_split_regions":0,"partition":{"type":2,"expr":"`id`","columns":null,"enable":true,"definitions":[{"id":148,"name":{"O":"p0","L":"p0"},"less_than":null,"in_values":null,"policy_ref_info":null},{"id":149,"name":{"O":"p1","L":"p1"},"less_than":null,"in_values":null,"policy_ref_info":null}],"adding_definitions":null,"dropping_definitions":null,"states":null,"num":2},"compression":"","view":null,"sequence":null,"Lock":null,"version":4,"tiflash_replica":null,"is_columnar":false,"temp_table_type":0,"cache_table_status":0,"policy_ref_info":null,"stats_options":null};
 func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	// Check if db exists.
 	dbKey := m.dbKey(dbID)
@@ -623,6 +635,7 @@ func (m *Meta) UpdateTable(dbID int64, tableInfo *model.TableInfo) error {
 }
 
 // ListTables shows all tables in database.
+// 从 metadb 内直接获取 TableInfo
 func (m *Meta) ListTables(dbID int64) ([]*model.TableInfo, error) {
 	dbKey := m.dbKey(dbID)
 	if err := m.checkDBExists(dbKey); err != nil {
@@ -784,6 +797,7 @@ func (m *Meta) GetTable(dbID int64, tableID int64) (*model.TableInfo, error) {
 // for multi DDL workers, only one can become the owner
 // to operate DDL jobs, and dispatch them to MR Jobs.
 
+// list 接口 用于 DDLJob 分发;
 var (
 	mDDLJobListKey    = []byte("DDLJobList")
 	mDDLJobAddIdxList = []byte("DDLJobAddIdxList")
@@ -802,6 +816,7 @@ var (
 )
 
 func (m *Meta) enQueueDDLJob(key []byte, job *model.Job) error {
+	// 会将 meta encode 到 rawArgs
 	b, err := job.Encode(true)
 	if err == nil {
 		err = m.txn.RPush(key, b)
@@ -1331,6 +1346,9 @@ func (m *Meta) GetSchemaDiff(schemaVersion int64) (*model.SchemaDiff, error) {
 }
 
 // SetSchemaDiff sets the modification information on a given schema version.
+// 存储在 metadb {Diff:version, SchemaDiff}
+// create table:
+// Diff:107: {"version":107,"type":3,"schema_id":1,"table_id":157,"old_table_id":0,"old_schema_id":0,"affected_options":null}
 func (m *Meta) SetSchemaDiff(diff *model.SchemaDiff) error {
 	data, err := json.Marshal(diff)
 	if err != nil {

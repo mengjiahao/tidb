@@ -77,6 +77,7 @@ func (c *Compiler) Compile(ctx context.Context, stmtNode ast.StmtNode) (*ExecStm
 		}
 	})
 
+	// 这里获取 元数据
 	is := sessiontxn.GetTxnManager(c.Ctx).GetTxnInfoSchema()
 	finalPlan, names, err := planner.Optimize(ctx, c.Ctx, stmtNode, is)
 	if err != nil {

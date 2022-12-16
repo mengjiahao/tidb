@@ -392,6 +392,7 @@ func (cc *clientConn) writeInitialHandshake(ctx context.Context) error {
 	data = append(data, 0)
 	// auth-plugin name
 	if ctx := cc.getCtx(); ctx == nil {
+		// 创建 session 及 相关上下文
 		if err := cc.openSession(); err != nil {
 			return err
 		}
@@ -1264,6 +1265,7 @@ func (cc *clientConn) addMetrics(cmd byte, startTime time.Time, err error) {
 // dispatch handles client request based on command which is the first byte of the data.
 // It also gets a token from server which is used to limit the concurrently handling clients.
 // The most frequently used command is ComQuery.
+// 请求执行入口;
 func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	defer func() {
 		// reset killed for each request

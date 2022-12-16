@@ -98,6 +98,7 @@ type ChangeStateInfo struct {
 }
 
 // ColumnInfo provides meta data describing of a table column.
+// Dependences 是什么？
 type ColumnInfo struct {
 	ID                    int64       `json:"id"`
 	Name                  CIStr       `json:"name"`
@@ -111,9 +112,10 @@ type ColumnInfo struct {
 	GeneratedExprString string              `json:"generated_expr_string"`
 	GeneratedStored     bool                `json:"generated_stored"`
 	Dependences         map[string]struct{} `json:"dependences"`
-	FieldType           types.FieldType     `json:"type"`
-	State               SchemaState         `json:"state"`
-	Comment             string              `json:"comment"`
+	// 有部分 constrain 标志;
+	FieldType types.FieldType `json:"type"`
+	State     SchemaState     `json:"state"`
+	Comment   string          `json:"comment"`
 	// A hidden column is used internally(expression index) and are not accessible by users.
 	Hidden           bool `json:"hidden"`
 	*ChangeStateInfo `json:"change_state_info"`
@@ -367,13 +369,15 @@ var ExtraPartitionIdName = NewCIStr("_tidb_pid")
 var ExtraPhysTblIdName = NewCIStr("_tidb_tid")
 
 // TableInfo provides meta data describing a DB table.
+// charset 默认是 utf8mb4, collate 默认是 utf8mb4_bin
 type TableInfo struct {
 	ID      int64  `json:"id"`
 	Name    CIStr  `json:"name"`
 	Charset string `json:"charset"`
 	Collate string `json:"collate"`
 	// Columns are listed in the order in which they appear in the schema.
-	Columns     []*ColumnInfo     `json:"cols"`
+	Columns []*ColumnInfo `json:"cols"`
+	// 只有单个主键索引则仍为null
 	Indices     []*IndexInfo      `json:"index_info"`
 	Constraints []*ConstraintInfo `json:"constraint_info"`
 	ForeignKeys []*FKInfo         `json:"fk_info"`
@@ -417,6 +421,7 @@ type TableInfo struct {
 	// And the PreSplitRegions should less than or equal to ShardRowIDBits.
 	PreSplitRegions uint64 `json:"pre_split_regions"`
 
+	// 分区表, [expr, p0, p1]
 	Partition *PartitionInfo `json:"partition"`
 
 	Compression string `json:"compression"`
@@ -970,9 +975,11 @@ func (p PartitionType) String() string {
 }
 
 // PartitionInfo provides table partition info.
+// https://docs.pingcap.com/tidb/stable/partitioned-table；
+// https://cn.pingcap.com/blog/tidb-source-code-reading-20；
 type PartitionInfo struct {
 	Type    PartitionType `json:"type"`
-	Expr    string        `json:"expr"`
+	Expr    string        `json:"expr"` // 分区键，值为id;
 	Columns []CIStr       `json:"columns"`
 
 	// User may already creates table with partition but table partition is not
@@ -1104,12 +1111,15 @@ func (t *TableInfo) FindPartitionDefinitionByName(partitionDefinitionName string
 }
 
 // IndexColumn provides index column info.
+// 注意存储的是 column name 而不是id;
+// 用于直接反序列化，IndexInfo 内不存指向 ColumnInfo 的引用;
 type IndexColumn struct {
 	Name   CIStr `json:"name"`   // Index name
 	Offset int   `json:"offset"` // Index offset
 	// Length of prefix when using column prefix
 	// for indexing;
 	// UnspecifedLength if not using prefix indexing
+	// 作为索引前缀的长度;
 	Length int `json:"length"`
 }
 
@@ -1168,6 +1178,7 @@ const (
 // IndexInfo provides meta data describing a DB index.
 // It corresponds to the statement `CREATE INDEX Name ON Table (Column);`
 // See https://dev.mysql.com/doc/refman/5.7/en/create-index.html
+// 注意 IndexInfo 中列使用 IndexColumn 而非 ColumnInfo
 type IndexInfo struct {
 	ID        int64          `json:"id"`
 	Name      CIStr          `json:"idx_name"` // Index name.
@@ -1397,6 +1408,7 @@ func writeSettingIntegerToBuilder(sb *strings.Builder, item string, value uint64
 	writeSettingItemToBuilder(sb, fmt.Sprintf("%s=%d", item, value))
 }
 
+// TiDB 6.0 Placement Rules
 func (p *PlacementSettings) String() string {
 	sb := new(strings.Builder)
 	if len(p.PrimaryRegion) > 0 {

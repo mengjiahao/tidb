@@ -242,6 +242,7 @@ func buildJobDependence(t *meta.Meta, curJob *model.Job) error {
 	if !curJob.MayNeedReorg() {
 		jobListKey = meta.AddIndexJobListKey
 	}
+	// 查询所有job 来分析 job的依赖顺序
 	jobs, err := t.GetAllDDLJobsInQueue(jobListKey)
 	if err != nil {
 		return errors.Trace(err)
@@ -264,6 +265,8 @@ func buildJobDependence(t *meta.Meta, curJob *model.Job) error {
 	return nil
 }
 
+// 真正在这里将 ddl job 加入到 metadb 的 ddl job queue
+// 通过 limitJobCh 获取 ddl job
 func (d *ddl) limitDDLJobs() {
 	defer d.wg.Done()
 	defer tidbutil.Recover(metrics.LabelDDL, "limitDDLJobs", nil, true)
@@ -286,10 +289,12 @@ func (d *ddl) limitDDLJobs() {
 }
 
 // addBatchDDLJobs gets global job IDs and puts the DDL jobs in the DDL queue.
+// 这里 批量加入 ddl 任务
 func (d *ddl) addBatchDDLJobs(tasks []*limitJobTask) {
 	startTime := time.Now()
 	err := kv.RunInNewTxn(context.Background(), d.store, true, func(ctx context.Context, txn kv.Transaction) error {
 		t := meta.NewMeta(txn)
+		// 这里批量分配 ddl job id；
 		ids, err := t.GenGlobalIDs(len(tasks))
 		if err != nil {
 			return errors.Trace(err)
@@ -297,6 +302,7 @@ func (d *ddl) addBatchDDLJobs(tasks []*limitJobTask) {
 
 		for i, task := range tasks {
 			job := task.job
+			// 使用当前的 currentVersion
 			job.Version = currentVersion
 			job.StartTS = txn.StartTS()
 			job.ID = ids[i]
@@ -315,6 +321,7 @@ func (d *ddl) addBatchDDLJobs(tasks []*limitJobTask) {
 					}
 				}
 			})
+			// job  存入 metadb
 			if err = t.EnQueueDDLJob(job, jobListKey); err != nil {
 				return errors.Trace(err)
 			}
@@ -367,6 +374,7 @@ func injectFailPointForGetJob(job *model.Job) {
 }
 
 // getFirstDDLJob gets the first DDL job form DDL queue.
+// 注意 这里只是从 DDL queue 中 get，不会摘取掉
 func (w *worker) getFirstDDLJob(t *meta.Meta) (*model.Job, error) {
 	job, err := t.GetDDLJobByIdx(0)
 	injectFailPointForGetJob(job)
@@ -439,6 +447,7 @@ func jobNeedGC(job *model.Job) bool {
 
 // finishDDLJob deletes the finished DDL job in the ddl queue and puts it to history queue.
 // If the DDL job need to handle in background, it will prepare a background job.
+// 将 DDL job 放入 history ddl job queue队列
 func (w *worker) finishDDLJob(t *meta.Meta, job *model.Job) (err error) {
 	startTime := time.Now()
 	defer func() {
@@ -509,6 +518,8 @@ func finishRecoverTable(w *worker, job *model.Job) error {
 	return nil
 }
 
+// 通过 DependencyID 是否有前序关系;
+// 从 history ddl job queue 内获取前任务的信息;
 func isDependencyJobDone(t *meta.Meta, job *model.Job) (bool, error) {
 	if job.DependencyID == noneDependencyJob {
 		return true, nil
@@ -568,6 +579,7 @@ func (w *JobContext) resetWhenJobFinish() {
 }
 
 // handleDDLJobQueue handles DDL jobs in DDL Job queue.
+// DDL 变更同时存在 集群变更 怎么办？
 func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 	once := true
 	waitDependencyJobCnt := 0
@@ -581,6 +593,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 			schemaVer int64
 			runJobErr error
 		)
+		// 引入确定的隔离时间区间，在 2*lease 的时间周期之后，所有正常工作的服务层节点都能从 schema state1 过渡到 schema state2
 		waitTime := 2 * d.lease
 		err := kv.RunInNewTxn(context.Background(), d.store, false, func(ctx context.Context, txn kv.Transaction) error {
 			// We are not owner, return and retry checking later.
@@ -605,6 +618,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 			if tagger := w.getResourceGroupTaggerForTopSQL(); tagger != nil {
 				txn.SetOption(kv.ResourceGroupTagger, tagger)
 			}
+			// DDL job 有 DAG 关系, 判断先前的任务是否已完成
 			if isDone, err1 := isDependencyJobDone(t, job); err1 != nil || !isDone {
 				return errors.Trace(err1)
 			}
@@ -619,6 +633,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 				if !job.IsRollbackDone() {
 					job.State = model.JobStateSynced
 				}
+				//  将 DDL job 放入 history ddl job queue队列
 				err = w.finishDDLJob(t, job)
 				return errors.Trace(err)
 			}
@@ -685,6 +700,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 		// If the job is done or still running or rolling back, we will wait 2 * lease time to guarantee other servers to update
 		// the newest schema.
 		ctx, cancel := context.WithTimeout(w.ctx, waitTime)
+		// schemaVer 用于同步等待所有节点更新;
 		w.waitSchemaChanged(ctx, d, waitTime, schemaVer, job)
 		cancel()
 
@@ -806,6 +822,8 @@ func (w *worker) countForError(err error, job *model.Job) error {
 	return err
 }
 
+// Leader worker 处理 DDL job 流程.
+// 可以做到幂等吗，中途失败了怎么办？会先尝试 rollback;
 // runDDLJob runs a DDL job. It returns the current schema version in this transaction and the error.
 func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, err error) {
 	defer tidbutil.Recover(metrics.LabelDDLWorker, fmt.Sprintf("%s runDDLJob", w),
@@ -829,6 +847,7 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 	}
 	// The cause of this job state is that the job is cancelled by client.
 	if job.IsCancelling() {
+		// 直接尝试将错误的ddl 进行 rollback;
 		return convertJob2RollbackJob(w, d, t, job)
 	}
 
@@ -1013,6 +1032,7 @@ func (w *worker) waitSchemaChanged(ctx context.Context, d *ddlCtx, waitTime time
 	}
 
 	// OwnerCheckAllVersions returns only when context is timeout(2 * lease) or all TiDB schemas are synced.
+	// 其他节点将其 schema version 都注册到了 etcd DDLAllSchemaVersions 下, 通过 getPrefix 进行检查;
 	err = d.schemaSyncer.OwnerCheckAllVersions(ctx, latestSchemaVersion)
 	if err != nil {
 		logutil.Logger(w.logCtx).Info("[ddl] wait latest schema version to deadline", zap.Int64("ver", latestSchemaVersion), zap.Error(err))
@@ -1067,11 +1087,14 @@ func buildPlacementAffects(oldIDs []int64, newIDs []int64) []*model.AffectedOpti
 }
 
 // updateSchemaVersion increments the schema version by 1 and sets SchemaDiff.
+// 并将此 new schema version 记录到 SchemaDiff;
 func updateSchemaVersion(_ *ddlCtx, t *meta.Meta, job *model.Job) (int64, error) {
+	// 自增全局的 schemaVersion 版本；
 	schemaVersion, err := t.GenSchemaVersion()
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	// 记录 schemaVersion 版本号；
 	diff := &model.SchemaDiff{
 		Version:  schemaVersion,
 		Type:     job.Type,
@@ -1181,8 +1204,15 @@ func updateSchemaVersion(_ *ddlCtx, t *meta.Meta, job *model.Job) (int64, error)
 			}
 		}
 	default:
+		// 创建单个表 ActionCreateTable 直接走这里, 只有 (version, id)等信息;
+		// diff schema中 设置新表的 ID，新表的元数据之前已经存入 metadb了；
+		// 这里用 ID 而不是 name 来区分新旧 TableInfo，有点 MVCC 的味道;
 		diff.TableID = job.TableID
 	}
+
+	// 存入 schema diff 到 metadb，存的是 {Diff:version, SchemaDiff}；
+	// diff schema 用于通知其他 worker 元数据已经变更;
+	// 注意 diff key 上有 new schema version;
 	err = t.SetSchemaDiff(diff)
 	return schemaVersion, errors.Trace(err)
 }

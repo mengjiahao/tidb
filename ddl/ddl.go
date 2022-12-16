@@ -271,6 +271,8 @@ func (d *ddl) RegisterStatsHandle(h *handle.Handle) {
 
 // asyncNotifyEvent will notify the ddl event to outside world, say statistic handle. When the channel is full, we may
 // give up notify and log it.
+// 通过 ddlEventCh 异步通知，允许 channel 满而通知失败;
+// 对于 create table，event 可以是 (ActionCreateTable, TableInfo);
 func asyncNotifyEvent(d *ddlCtx, e *util.Event) {
 	if d.ddlEventCh != nil {
 		if d.lease == 0 {
@@ -475,6 +477,7 @@ func (d *ddl) GetLease() time.Duration {
 // Please don't use this function, it is used by TestParallelDDLBeforeRunDDLJob to intercept the calling of d.infoHandle.Get(), use d.infoHandle.Get() instead.
 // Otherwise, the TestParallelDDLBeforeRunDDLJob will hang up forever.
 func (d *ddl) GetInfoSchemaWithInterceptor(ctx sessionctx.Context) infoschema.InfoSchema {
+	// 直接从 schameCache 获取最新的元数据缓存
 	is := d.infoCache.GetLatest()
 
 	d.mu.RLock()
@@ -616,6 +619,7 @@ func setDDLJobQuery(ctx sessionctx.Context, job *model.Job) {
 func (d *ddl) DoDDLJob(ctx sessionctx.Context, job *model.Job) error {
 	// Get a global job ID and put the DDL job in the queue.
 	setDDLJobQuery(ctx, job)
+	// 将 ddl job 通过 limitJobCh 消息通信加入队列
 	task := &limitJobTask{job, make(chan error)}
 	d.limitJobCh <- task
 	// worker should restart to continue handling tasks in limitJobCh, and send back through task.err

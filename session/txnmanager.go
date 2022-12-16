@@ -56,6 +56,7 @@ func (m *txnManager) GetTxnInfoSchema() infoschema.InfoSchema {
 	if m.ctxProvider == nil {
 		return nil
 	}
+	// Adhoc 是 SimpleTxnContextProvider
 	return m.ctxProvider.GetTxnInfoSchema()
 }
 

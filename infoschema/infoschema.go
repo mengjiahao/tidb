@@ -31,6 +31,7 @@ import (
 // It works as a in memory cache and doesn't handle any schema change.
 // InfoSchema is read-only, and the returned value is a copy.
 // TODO: add more methods to retrieve tables and columns.
+// 元数据只读缓存 SchemaCache，go 保证多协程访问安全；
 type InfoSchema interface {
 	SchemaByName(schema model.CIStr) (*model.DBInfo, bool)
 	SchemaExists(schema model.CIStr) bool
@@ -73,6 +74,7 @@ func (s sortedTables) Less(i, j int) bool {
 	return s[i].Meta().ID < s[j].Meta().ID
 }
 
+// 排序后查找
 func (s sortedTables) searchTable(id int64) int {
 	idx := sort.Search(len(s), func(i int) bool {
 		return s[i].Meta().ID >= id
@@ -83,6 +85,8 @@ func (s sortedTables) searchTable(id int64) int {
 	return idx
 }
 
+// 注意 DBInfo 存储的是 db元数据；
+// table.Table 不是 TableInfo；
 type schemaTables struct {
 	dbInfo *model.DBInfo
 	tables map[string]table.Table
@@ -90,6 +94,7 @@ type schemaTables struct {
 
 const bucketCount = 512
 
+// 内存缓存的 schema cache
 type infoSchema struct {
 	// ruleBundleMap stores all placement rules
 	ruleBundleMap map[int64]*placement.Bundle
@@ -98,6 +103,7 @@ type infoSchema struct {
 	policyMutex sync.RWMutex
 	policyMap   map[string]*model.PolicyInfo
 
+	// schema cache. db->table
 	schemaMap map[string]*schemaTables
 
 	// sortedTablesBuckets is a slice of sortedTables, a table's bucket index is (tableID % bucketCount).
@@ -177,6 +183,8 @@ func (is *infoSchema) SchemaExists(schema model.CIStr) bool {
 	return ok
 }
 
+// 根据 table name 进行查找;
+// 注意 infoSchema 中 是 Table 而不是 TableInfo；
 func (is *infoSchema) TableByName(schema, table model.CIStr) (t table.Table, err error) {
 	if tbNames, ok := is.schemaMap[schema.L]; ok {
 		if t, ok = tbNames.tables[table.L]; ok {
@@ -232,6 +240,7 @@ func (is *infoSchema) SchemaByID(id int64) (val *model.DBInfo, ok bool) {
 	return nil, false
 }
 
+// 这里返回的是指针
 func (is *infoSchema) SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool) {
 	if tableInfo == nil {
 		return nil, false
@@ -246,6 +255,7 @@ func (is *infoSchema) SchemaByTable(tableInfo *model.TableInfo) (val *model.DBIn
 	return nil, false
 }
 
+// 注意这里是返回值，而不是指针
 func (is *infoSchema) TableByID(id int64) (val table.Table, ok bool) {
 	slice := is.sortedTablesBuckets[tableBucketIdx(id)]
 	idx := slice.searchTable(id)

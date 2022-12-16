@@ -82,6 +82,8 @@ const (
 	tiflashCheckPendingTablesRetry = 7
 )
 
+// Create DB；
+// 注意这里没有 TableInfo 信息；
 func (d *ddl) CreateSchema(ctx sessionctx.Context, schema model.CIStr, charsetInfo *ast.CharsetOpt, placementPolicyRef *model.PolicyRefInfo) (err error) {
 	dbInfo := &model.DBInfo{Name: schema}
 	if charsetInfo != nil {
@@ -135,8 +137,10 @@ func (d *ddl) CreateSchemaWithInfo(
 	if err != nil {
 		return errors.Trace(err)
 	}
+	// 从 NextGlobalID 获取全局 id;
 	dbInfo.ID = genIDs[0]
 
+	// 实际内容是个 diff schema；
 	job := &model.Job{
 		SchemaID:   dbInfo.ID,
 		SchemaName: dbInfo.Name.L,
@@ -656,6 +660,7 @@ func buildColumnsAndConstraints(
 		cols = append(cols, col)
 		colMap[colDef.Name.Name.L] = col
 	}
+	// colMap 帮助设置额外的 constrains 信息;
 	// Traverse table Constraints and set col.flag.
 	for _, v := range constraints {
 		setColumnFlagWithConstraint(colMap, v)
@@ -784,6 +789,7 @@ func buildColumnAndConstraint(
 	if err := setCharsetCollationFlenDecimal(colDef.Tp, colDef.Name.Name.O, chs, coll, ctx.GetSessionVars()); err != nil {
 		return nil, nil, errors.Trace(err)
 	}
+	// outPriKeyConstraint 有是否是 primary key;
 	col, cts, err := columnDefToCol(ctx, offset, colDef, outPriKeyConstraint)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
@@ -922,6 +928,7 @@ func adjustBlobTypesFlen(tp *types.FieldType, colCharset string) error {
 	return nil
 }
 
+// AST ColumnDef 转 model.ColumnInfo;
 // columnDefToCol converts ColumnDef to Col and TableConstraints.
 // outPriKeyConstraint is the primary key constraint out of column definition. such as: create table t1 (id int , age int, primary key(id));
 func columnDefToCol(ctx sessionctx.Context, offset int, colDef *ast.ColumnDef, outPriKeyConstraint *ast.Constraint) (*table.Column, []*ast.Constraint, error) {
@@ -970,11 +977,13 @@ func columnDefToCol(ctx sessionctx.Context, offset int, colDef *ast.ColumnDef, o
 			case ast.ColumnOptionAutoIncrement:
 				col.AddFlag(mysql.AutoIncrementFlag | mysql.NotNullFlag)
 			case ast.ColumnOptionPrimaryKey:
+				// constraints 中有 primary key 等索引信息;
 				// Check PriKeyFlag first to avoid extra duplicate constraints.
 				if col.GetFlag()&mysql.PriKeyFlag == 0 {
 					constraint := &ast.Constraint{Tp: ast.ConstraintPrimaryKey, Keys: keys,
 						Option: &ast.IndexOption{PrimaryKeyTp: v.PrimaryKeyTp}}
 					constraints = append(constraints, constraint)
+					// 同样有 flag 标志其为 Primary Key
 					col.AddFlag(mysql.PriKeyFlag)
 					// Add NotNullFlag early so that processColumnFlags() can see it.
 					col.AddFlag(mysql.NotNullFlag)
@@ -1744,6 +1753,7 @@ func buildTableInfo(
 	constraints []*ast.Constraint,
 	charset string,
 	collate string) (tbInfo *model.TableInfo, err error) {
+	// 这里设置默认 CurrLatestTableInfoVersion， 注意这个不是 schema 版本，而是实现上表的格式；
 	tbInfo = &model.TableInfo{
 		Name:    tableName,
 		Version: model.CurrLatestTableInfoVersion,
@@ -1752,6 +1762,7 @@ func buildTableInfo(
 	}
 	tblColumns := make([]*table.Column, 0, len(cols))
 	for _, v := range cols {
+		// 注意这是局部id
 		v.ID = allocateColumnID(tbInfo)
 		tbInfo.Columns = append(tbInfo.Columns, v.ToInfo())
 		tblColumns = append(tblColumns, table.ToColumn(v.ToInfo()))
@@ -1823,6 +1834,8 @@ func buildTableInfo(
 			continue
 		}
 		// build index info.
+		// 通过 constrain 信息构造索引;
+		// 注意索引初始化时state为 StatePublic；
 		idxInfo, err := buildIndexInfo(tbInfo, model.NewCIStr(constr.Name), constr.Keys, model.StatePublic)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -1858,6 +1871,7 @@ func buildTableInfo(
 			// Use btree as default index type.
 			idxInfo.Tp = model.IndexTypeBtree
 		}
+		// 索引 id 也是 局部id；
 		idxInfo.ID = allocateIndexID(tbInfo)
 		tbInfo.Indices = append(tbInfo.Indices, idxInfo)
 	}
@@ -2175,8 +2189,12 @@ func (d *ddl) assignPartitionIDs(defs []model.PartitionDefinition) error {
 	return nil
 }
 
+// 创建 create table ddl job;
+// 注意输入是 ast.CreateTableStmt;
 func (d *ddl) CreateTable(ctx sessionctx.Context, s *ast.CreateTableStmt) (err error) {
+	// table name
 	ident := ast.Ident{Schema: s.Table.Schema, Name: s.Table.Name}
+	// 从当前 InfoSchema 获取 DBInfo
 	is := d.GetInfoSchemaWithInterceptor(ctx)
 	schema, ok := is.SchemaByName(ident.Schema)
 	if !ok {
@@ -2185,6 +2203,7 @@ func (d *ddl) CreateTable(ctx sessionctx.Context, s *ast.CreateTableStmt) (err e
 
 	var referTbl table.Table
 	if s.ReferTable != nil {
+		// 是否有 create table .. like 克隆的关联表
 		referIdent := ast.Ident{Schema: s.ReferTable.Schema, Name: s.ReferTable.Name}
 		_, ok := is.SchemaByName(referIdent.Schema)
 		if !ok {
@@ -2197,10 +2216,13 @@ func (d *ddl) CreateTable(ctx sessionctx.Context, s *ast.CreateTableStmt) (err e
 	}
 
 	// build tableInfo
+	// 这里创建完整的 table 元数据信息，包含 tableInfo/columnInfo/partitionInfo/version
 	var tbInfo *model.TableInfo
 	if s.ReferTable != nil {
 		tbInfo, err = buildTableInfoWithLike(ctx, ident, referTbl.Meta(), s)
 	} else {
+		// 普通 create table 走这里， 通过 AST 构造 新的表信息 TableInfo;
+		// 注意此时没有分配 table 的全局 ID；
 		tbInfo, err = BuildTableInfoWithStmt(ctx, s, schema.Charset, schema.Collate, schema.PlacementPolicyRef)
 	}
 	if err != nil {
@@ -2216,6 +2238,9 @@ func (d *ddl) CreateTable(ctx sessionctx.Context, s *ast.CreateTableStmt) (err e
 		onExist = OnExistIgnore
 	}
 
+	// TableInfo -> DDL job(ActionCreateTable)
+	// 与 polardb-x 不一样，这里的 ddl job 没有 ddl task 等物理执行计划信息, 相当于 新的TableInfo 的JSON化;
+	// 因为还只是 worker 将请求转发给 leader worker 的阶段, ddl 执行流程 由后续 leader worker 控制;
 	return d.CreateTableWithInfo(ctx, schema.Name, tbInfo, onExist)
 }
 
@@ -2235,6 +2260,7 @@ func setTemporaryType(ctx sessionctx.Context, tbInfo *model.TableInfo, s *ast.Cr
 	return nil
 }
 
+// Job 包含新的表 TableInfo；
 // createTableWithInfoJob returns the table creation job.
 // WARNING: it may return a nil job, which means you don't need to submit any DDL job.
 // WARNING!!!: if retainID == true, it will not allocate ID by itself. That means if the caller
@@ -2246,6 +2272,7 @@ func (d *ddl) createTableWithInfoJob(
 	onExist OnExist,
 	retainID bool,
 ) (job *model.Job, err error) {
+	// is 获取旧的元数据
 	is := d.GetInfoSchemaWithInterceptor(ctx)
 	schema, ok := is.SchemaByName(dbName)
 	if !ok {
@@ -2280,11 +2307,13 @@ func (d *ddl) createTableWithInfoJob(
 	}
 
 	if !retainID {
+		// 注意这里 分配 table 的全局 ID；
 		if err := d.assignTableID(tbInfo); err != nil {
 			return nil, errors.Trace(err)
 		}
 
 		if tbInfo.Partition != nil {
+			// 分配每个 PartitionTable 物理表的 ID;
 			if err := d.assignPartitionIDs(tbInfo.Partition.Definitions); err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -2295,6 +2324,7 @@ func (d *ddl) createTableWithInfoJob(
 		return nil, err
 	}
 
+	// 注意 args 是 tableInfo
 	var actionType model.ActionType
 	args := []interface{}{tbInfo}
 	switch {
@@ -2307,14 +2337,15 @@ func (d *ddl) createTableWithInfoJob(
 		actionType = model.ActionCreateTable
 	}
 
+	// Job 没有 ID？
 	job = &model.Job{
-		SchemaID:   schema.ID,
+		SchemaID:   schema.ID, // 注意 schema.ID 与 tableInfo.ID 都是全局ID;
 		TableID:    tbInfo.ID,
 		SchemaName: schema.Name.L,
 		TableName:  tbInfo.Name.L,
 		Type:       actionType,
 		BinlogInfo: &model.HistoryInfo{},
-		Args:       args,
+		Args:       args, // 参数是 新表的 TableInfo，会encode到 RawArgs
 	}
 	return job, nil
 }
@@ -2343,12 +2374,14 @@ func (d *ddl) createTableWithInfoPost(
 	return err
 }
 
+// 真正创建 create table ddl job；
 func (d *ddl) CreateTableWithInfo(
 	ctx sessionctx.Context,
 	dbName model.CIStr,
 	tbInfo *model.TableInfo,
 	onExist OnExist,
 ) (err error) {
+	// 此时 job 还没有 ID;
 	job, err := d.createTableWithInfoJob(ctx, dbName, tbInfo, onExist, false)
 	if err != nil {
 		return err
@@ -2873,6 +2906,7 @@ func isIgnorableSpec(tp ast.AlterTableType) bool {
 // getCharsetAndCollateInColumnDef will iterate collate in the options, validate it by checking the charset
 // of column definition. If there's no collate in the option, the default collate of column's charset will be used.
 func getCharsetAndCollateInColumnDef(def *ast.ColumnDef) (chs, coll string, err error) {
+	// 默认用default;
 	chs = def.Tp.GetCharset()
 	coll = def.Tp.GetCollate()
 	if chs != "" && coll == "" {
@@ -5348,6 +5382,7 @@ func (d *ddl) TruncateTable(ctx sessionctx.Context, ti ast.Ident) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	newTableID := genIDs[0]
 	job := &model.Job{
 		SchemaID:   schema.ID,
@@ -5356,7 +5391,7 @@ func (d *ddl) TruncateTable(ctx sessionctx.Context, ti ast.Ident) error {
 		TableName:  tb.Meta().Name.L,
 		Type:       model.ActionTruncateTable,
 		BinlogInfo: &model.HistoryInfo{},
-		Args:       []interface{}{newTableID},
+		Args:       []interface{}{newTableID}, // 参数 只有 新表的 ID;
 	}
 	if ok, _ := ctx.CheckTableLocked(tb.Meta().ID); ok && config.TableLockEnabled() {
 		// AddTableLock here to avoid this ddl job was executed successfully but the session was been kill before return.
@@ -5751,6 +5786,7 @@ func (d *ddl) CreateIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.Inde
 		return dbterror.ErrUnsupportedIndexType.GenWithStack("FULLTEXT and SPATIAL index is not supported")
 	}
 	unique := keyType == ast.IndexKeyTypeUnique
+	// 获取 index 对应的 DBInfo 与 Table 元数据;
 	schema, t, err := d.getSchemaAndTableByIdent(ctx, ti)
 	if err != nil {
 		return errors.Trace(err)
@@ -5835,6 +5871,7 @@ func (d *ddl) CreateIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.Inde
 	}
 
 	tzName, tzOffset := ddlutil.GetTimeZone(ctx)
+	// 注意这里不构造 IndexInfo 元数据，因为 TableInfo 可能是旧的，在执行时才构造;
 	job := &model.Job{
 		SchemaID:   schema.ID,
 		TableID:    t.Meta().ID,

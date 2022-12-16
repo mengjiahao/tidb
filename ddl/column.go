@@ -1812,6 +1812,7 @@ func getColumnForeignKeyInfo(colName string, fkInfos []*model.FKInfo) *model.FKI
 	return nil
 }
 
+// column id 只是 table 内部局部 id?
 func allocateColumnID(tblInfo *model.TableInfo) int64 {
 	tblInfo.MaxColumnID++
 	return tblInfo.MaxColumnID

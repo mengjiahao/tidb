@@ -48,6 +48,7 @@ const (
 )
 
 // Flag information.
+// constrain flag 使用 二进制 标志;
 const (
 	NotNullFlag        uint = 1 << 0  /* Field can't be NULL */
 	PriKeyFlag         uint = 1 << 1  /* Field is part of a primary key */

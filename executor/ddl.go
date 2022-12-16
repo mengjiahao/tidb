@@ -85,6 +85,7 @@ func (e *DDLExec) getLocalTemporaryTable(schema model.CIStr, table model.CIStr) 
 }
 
 // Next implements the Executor Next interface.
+// 在 DDLExec 中执行迭代器
 func (e *DDLExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	if e.done {
 		return nil

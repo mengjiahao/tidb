@@ -37,6 +37,7 @@ import (
 )
 
 // Manager is used to campaign the owner and manage the owner information.
+// 承担 CS 的 角色，尝试作为集群 Leader;
 type Manager interface {
 	// ID returns the ID of the manager.
 	ID() string

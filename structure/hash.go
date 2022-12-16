@@ -23,6 +23,8 @@ import (
 	"github.com/pingcap/tidb/kv"
 )
 
+// hash KKV 接口
+
 // HashPair is the pair for (field, value) in a hash.
 type HashPair struct {
 	Field []byte

@@ -185,6 +185,7 @@ func (ts *TiDBStatement) Close() error {
 }
 
 // OpenCtx implements IDriver.
+// 创建 TiDBContext；
 func (qd *TiDBDriver) OpenCtx(connID uint64, capability uint32, collation uint8, dbname string, tlsState *tls.ConnectionState) (*TiDBContext, error) {
 	se, err := session.CreateSession(qd.store)
 	if err != nil {
@@ -200,7 +201,7 @@ func (qd *TiDBDriver) OpenCtx(connID uint64, capability uint32, collation uint8,
 	tc := &TiDBContext{
 		Session:   se,
 		currentDB: dbname,
-		stmts:     make(map[int]*TiDBStatement),
+		stmts:     make(map[int]*TiDBStatement), // 缓存的 stmts
 	}
 	return tc, nil
 }
@@ -266,6 +267,7 @@ func (tc *TiDBContext) FieldList(table string) (columns []*ColumnInfo, err error
 }
 
 // GetStatement implements QueryCtx GetStatement method.
+// 单从自己连接中context获取
 func (tc *TiDBContext) GetStatement(stmtID int) PreparedStatement {
 	tcStmt := tc.stmts[stmtID]
 	if tcStmt != nil {
@@ -298,6 +300,8 @@ func (tc *TiDBContext) Prepare(sql string) (statement PreparedStatement, columns
 			Type: mysql.TypeBlob,
 		}
 	}
+	// 加入 TiDBContext 中 stmt cache 中
+	// TiDBContext 是连接相关的上下文 clientConn.ctx
 	tc.stmts[int(stmtID)] = stmt
 	return
 }

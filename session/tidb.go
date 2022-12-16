@@ -121,6 +121,7 @@ var (
 	// Default schema lease time is 1 second, you can change it with a proper time,
 	// but you must know that too little may cause badly performance degradation.
 	// For production, you should set a big schema lease, like 300s+.
+	// online ddl 等待时间 300s 也太长了吧.
 	schemaLease = int64(1 * time.Second)
 
 	// statsLease is the time for reload stats table.

@@ -47,13 +47,17 @@ import (
 
 const tiflashCheckTiDBHTTPAPIHalfInterval = 2500 * time.Millisecond
 
+// 在 metadb 中创建新表;
+// 得益于底层 db kv结构不需要知晓 schema，因此 只更新 metadb 即可;
 // DANGER: it is an internal function used by onCreateTable and onCreateTables, for reusing code. Be careful.
 // 1. it expects the argument of job has been deserialized.
 // 2. it won't call updateSchemaVersion, FinishTableJob and asyncNotifyEvent.
 func createTable(d *ddlCtx, t *meta.Meta, job *model.Job) (*model.TableInfo, error) {
+	// 用 diff schema 创建表;
 	schemaID := job.SchemaID
 	tbInfo := job.Args[0].(*model.TableInfo)
 
+	// 注意这里设置了 TableInfo.State;
 	tbInfo.State = model.StateNone
 	err := checkTableNotExists(d, t, schemaID, tbInfo.Name.L)
 	if err != nil {
@@ -63,11 +67,15 @@ func createTable(d *ddlCtx, t *meta.Meta, job *model.Job) (*model.TableInfo, err
 		return tbInfo, errors.Trace(err)
 	}
 
+	// create table 是直接可转变为可见的
 	switch tbInfo.State {
 	case model.StateNone:
-		// none -> public
+		// 将 TableInfo.State 更新为 public;
+		// 这里可以直接更新，因为 create table 不需要 worker 同步变为 public，可以部分 absent 部分 public；
 		tbInfo.State = model.StatePublic
 		tbInfo.UpdateTS = t.StartTS
+		// 在 metadb 中存储 TableInfo;
+		// 不改变 db 的状态信息；
 		err = createTableOrViewWithCheck(t, job, schemaID, tbInfo)
 		if err != nil {
 			return tbInfo, errors.Trace(err)
@@ -85,6 +93,7 @@ func createTable(d *ddlCtx, t *meta.Meta, job *model.Job) (*model.TableInfo, err
 		}
 
 		if tbInfo.TiFlashReplica != nil {
+			// 启用了 TiFlash 走这里
 			replicaInfo := tbInfo.TiFlashReplica
 			if pi := tbInfo.GetPartitionInfo(); pi != nil {
 				logutil.BgLogger().Info("Set TiFlash replica pd rule for partitioned table when creating", zap.Int64("tableID", tbInfo.ID))
@@ -106,6 +115,7 @@ func createTable(d *ddlCtx, t *meta.Meta, job *model.Job) (*model.TableInfo, err
 			}
 		}
 
+		// 获取 placement rule
 		bundles, err := placement.NewFullTableBundles(t, tbInfo)
 		if err != nil {
 			job.State = model.JobStateCancelled
@@ -125,6 +135,7 @@ func createTable(d *ddlCtx, t *meta.Meta, job *model.Job) (*model.TableInfo, err
 	}
 }
 
+//  真正执行 create table ddl，并标记内存 job 状态为 JobStateDone;
 func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error) {
 	failpoint.Inject("mockExceedErrorLimit", func(val failpoint.Value) {
 		if val.(bool) {
@@ -132,6 +143,8 @@ func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error)
 		}
 	})
 
+	// 从 job.args 中解析出 TableInfo;
+	// 相当于用 diff schema 创建表;
 	// just decode, createTable will use it as Args[0]
 	tbInfo := &model.TableInfo{}
 	if err := job.DecodeArgs(tbInfo); err != nil {
@@ -140,18 +153,23 @@ func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error)
 		return ver, errors.Trace(err)
 	}
 
+	// 在 metadb 中创建新表;
 	tbInfo, err := createTable(d, t, job)
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
 
+	// ddl 操作完毕后，变更 schema version；
+	// 所以 TableInfo 不带表的 version 信息;
 	ver, err = updateSchemaVersion(d, t, job)
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
 
 	// Finish this job.
+	// 更新内存中 Job 状态;
 	job.FinishTableJob(model.JobStateDone, model.StatePublic, ver, tbInfo)
+	// 异步通知 (ActionCreateTable, TableInfo) 更新 stats_meta;
 	asyncNotifyEvent(d, &util.Event{Tp: model.ActionCreateTable, TableInfo: tbInfo})
 	return ver, errors.Trace(err)
 }
@@ -200,6 +218,7 @@ func onCreateTables(d *ddlCtx, t *meta.Meta, job *model.Job) (int64, error) {
 	return ver, errors.Trace(err)
 }
 
+// 对于 tidb，建表只需要存储元数据，因为数据是kv;
 func createTableOrViewWithCheck(t *meta.Meta, job *model.Job, schemaID int64, tbInfo *model.TableInfo) error {
 	err := checkTableInfoValid(tbInfo)
 	if err != nil {
@@ -275,6 +294,7 @@ func onCreateView(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error) 
 	}
 }
 
+// 不用 DAG 而是用 状态机 直接控制，不过共享存储好处是只需要修改1个地方;
 func onDropTableOrView(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error) {
 	tblInfo, err := checkTableExistAndCancelNonExistJob(t, job, job.SchemaID)
 	if err != nil {
@@ -576,6 +596,7 @@ func GetTableInfoAndCancelFaultJob(t *meta.Meta, job *model.Job, schemaID int64)
 	return tblInfo, nil
 }
 
+// 先从 metadb 中获取 table ddl 执行的状态信息
 func checkTableExistAndCancelNonExistJob(t *meta.Meta, job *model.Job, schemaID int64) (*model.TableInfo, error) {
 	tblInfo, err := getTableInfo(t, job.TableID, schemaID)
 	if err == nil {
@@ -620,6 +641,7 @@ func getTableInfo(t *meta.Meta, tableID, schemaID int64) (*model.TableInfo, erro
 func onTruncateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error) {
 	schemaID := job.SchemaID
 	tableID := job.TableID
+	// job.args 只有新表的 ID;
 	var newTableID int64
 	err := job.DecodeArgs(&newTableID)
 	if err != nil {
@@ -635,6 +657,7 @@ func onTruncateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ erro
 		return ver, infoschema.ErrTableNotExists.GenWithStackByArgs(job.SchemaName, tblInfo.Name.O)
 	}
 
+	// 删除metadb中表的元数据；
 	err = t.DropTableOrView(schemaID, tblInfo.ID)
 	if err != nil {
 		job.State = model.JobStateCancelled
@@ -728,6 +751,8 @@ func onTruncateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ erro
 		return 0, errors.Wrapf(err, "failed to notify PD the placement rules")
 	}
 
+	// 重新创建新表；
+	// 会不会有中间过程中不见这个表的元数据;
 	err = t.CreateTableOrView(schemaID, tblInfo)
 	if err != nil {
 		job.State = model.JobStateCancelled
@@ -1205,11 +1230,14 @@ func checkTableNotExists(d *ddlCtx, t *meta.Meta, schemaID int64, tableName stri
 	if err != nil {
 		return err
 	}
+	// 获取当前的 schema cache
 	is := d.infoCache.GetLatest()
+	// 当前 metadb 版本号 与 schema cache 一致，则直接在cache内检查table是否存在
 	if is.SchemaMetaVersion() == currVer {
 		return checkTableNotExistsFromInfoSchema(is, schemaID, tableName)
 	}
 
+	// 否则从metadb中检测
 	return checkTableNotExistsFromStore(t, schemaID, tableName)
 }
 
@@ -1270,6 +1298,8 @@ func updateVersionAndTableInfoWithCheck(d *ddlCtx, t *meta.Meta, job *model.Job,
 	return updateVersionAndTableInfo(d, t, job, tblInfo, shouldUpdateVer)
 }
 
+// 注意索引也是更新 TableInfo;
+// schema version 根据需要增加;
 // updateVersionAndTableInfo updates the schema version and the table information.
 func updateVersionAndTableInfo(d *ddlCtx, t *meta.Meta, job *model.Job, tblInfo *model.TableInfo, shouldUpdateVer bool) (
 	ver int64, err error) {
@@ -1285,6 +1315,8 @@ func updateVersionAndTableInfo(d *ddlCtx, t *meta.Meta, job *model.Job, tblInfo 
 		default:
 		}
 	})
+
+	//  为啥是先更新 version 再更新 metadb;
 	if shouldUpdateVer {
 		ver, err = updateSchemaVersion(d, t, job)
 		if err != nil {
@@ -1295,6 +1327,7 @@ func updateVersionAndTableInfo(d *ddlCtx, t *meta.Meta, job *model.Job, tblInfo 
 	if tblInfo.State == model.StatePublic {
 		tblInfo.UpdateTS = t.StartTS
 	}
+	// 在metadb 更新 TableInfo 但不改变 ID；
 	return ver, t.UpdateTable(job.SchemaID, tblInfo)
 }
 

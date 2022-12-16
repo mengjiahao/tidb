@@ -60,6 +60,7 @@ func (do *Domain) rebuildSysVarCacheIfNeeded() (err error) {
 // GetSessionCache gets a copy of the session sysvar cache.
 // The intention is to copy it directly to the systems[] map
 // on creating a new session.
+// 深拷贝 SessionCache;
 func (do *Domain) GetSessionCache() (map[string]string, error) {
 	if err := do.rebuildSysVarCacheIfNeeded(); err != nil {
 		return nil, err

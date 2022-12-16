@@ -61,6 +61,7 @@ func buildIndexColumns(columns []*model.ColumnInfo, indexPartSpecifications []*a
 	// The sum of length of all index columns.
 	sumLength := 0
 	for _, ip := range indexPartSpecifications {
+		// 顺序查找 索引所需的 列信息；
 		col = model.FindColumnInfo(columns, ip.Column.Name.L)
 		if col == nil {
 			return nil, dbterror.ErrKeyColumnDoesNotExits.GenWithStack("column does not exist: %s", ip.Column.Name)
@@ -226,6 +227,7 @@ func buildIndexInfo(tblInfo *model.TableInfo, indexName model.CIStr, indexPartSp
 		return nil, errors.Trace(err)
 	}
 
+	// indexPartSpecifications 选出 table 列中哪些是 索引需要的列;
 	idxColumns, err := buildIndexColumns(tblInfo.Columns, indexPartSpecifications)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -392,6 +394,7 @@ func updateHiddenColumns(tblInfo *model.TableInfo, idxInfo *model.IndexInfo, sta
 func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job, isPK bool) (ver int64, err error) {
 	// Handle the rolling back job.
 	if job.IsRollingback() {
+		// job 中途失败则反向执行
 		ver, err = onDropIndex(d, t, job)
 		if err != nil {
 			return ver, errors.Trace(err)
@@ -401,6 +404,7 @@ func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job, isPK boo
 
 	// Handle normal job.
 	schemaID := job.SchemaID
+	// 从 metadb 中获取当前最新的 TableInfo 信息;
 	tblInfo, err := GetTableInfoAndCancelFaultJob(t, job, schemaID)
 	if err != nil {
 		return ver, errors.Trace(err)
@@ -467,6 +471,8 @@ func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job, isPK boo
 			job.State = model.JobStateCancelled
 			return ver, errors.Trace(err)
 		}
+
+		// 注意在 worker中 构造 index 元数据;
 		indexInfo, err = buildIndexInfo(tblInfo, indexName, indexPartSpecifications, model.StateNone)
 		if err != nil {
 			job.State = model.JobStateCancelled
@@ -498,6 +504,8 @@ func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job, isPK boo
 		indexInfo.Unique = unique
 		indexInfo.Global = global
 		indexInfo.ID = allocateIndexID(tblInfo)
+
+		// 更新 tableInfo 中 indexInfo 信息
 		tblInfo.Indices = append(tblInfo.Indices, indexInfo)
 		if err = checkTooManyIndexes(tblInfo.Indices); err != nil {
 			job.State = model.JobStateCancelled
@@ -516,6 +524,7 @@ func (w *worker) onCreateIndex(d *ddlCtx, t *meta.Meta, job *model.Job, isPK boo
 	switch indexInfo.State {
 	case model.StateNone:
 		// none -> delete only
+		// 注意 tblInfo.State 不用改；
 		indexInfo.State = model.StateDeleteOnly
 		updateHiddenColumns(tblInfo, indexInfo, model.StatePublic)
 		ver, err = updateVersionAndTableInfoWithCheck(d, t, job, tblInfo, originalState != indexInfo.State)

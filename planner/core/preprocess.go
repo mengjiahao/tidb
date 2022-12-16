@@ -488,6 +488,7 @@ func (p *preprocessor) checkBindGrammar(originNode, hintedNode ast.StmtNode, def
 			p.err = dbterror.ErrOptOnTemporaryTable.GenWithStackByArgs("create binding")
 			return
 		}
+		// 检查元数据
 		tableInfo := tbl.Meta()
 		dbInfo, _ := p.ensureInfoSchema().SchemaByTable(tableInfo)
 		tn.TableInfo = tableInfo

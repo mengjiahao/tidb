@@ -75,7 +75,7 @@ type Domain struct {
 	bindHandle           *bindinfo.BindHandle
 	statsHandle          unsafe.Pointer
 	statsLease           time.Duration
-	ddl                  ddl.DDL
+	ddl                  ddl.DDL // ddl api
 	info                 *infosync.InfoSyncer
 	globalCfgSyncer      *globalconfigsync.GlobalConfigSyncer
 	m                    sync.Mutex
@@ -112,6 +112,7 @@ func (do *Domain) EtcdClient() *clientv3.Client {
 	return do.etcdClient
 }
 
+// 这里进行 worker 的 元数据缓存更新
 // loadInfoSchema loads infoschema at startTS.
 // It returns:
 // 1. the needed infoschema
@@ -122,11 +123,13 @@ func (do *Domain) EtcdClient() *clientv3.Client {
 func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, int64, *transaction.RelatedSchemaChange, error) {
 	snapshot := do.store.GetSnapshot(kv.NewVersion(startTS))
 	m := meta.NewSnapshotMeta(snapshot)
+	// 从 metadb 获取当前的 schemaVersion;
 	neededSchemaVersion, err := m.GetSchemaVersion()
 	if err != nil {
 		return nil, false, 0, nil, err
 	}
 
+	// 检测缓存中此schema是否已经存在;
 	if is := do.infoCache.GetByVersion(neededSchemaVersion); is != nil {
 		return is, true, 0, nil, nil
 	}
@@ -146,6 +149,7 @@ func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, i
 	if currentSchemaVersion != 0 && neededSchemaVersion > currentSchemaVersion && neededSchemaVersion-currentSchemaVersion < 100 {
 		is, relatedChanges, err := do.tryLoadSchemaDiffs(m, currentSchemaVersion, neededSchemaVersion)
 		if err == nil {
+			// 一般在这里添加
 			do.infoCache.Insert(is, startTS)
 			logutil.BgLogger().Info("diff load InfoSchema success",
 				zap.Int64("currentSchemaVersion", currentSchemaVersion),
@@ -159,6 +163,7 @@ func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, i
 		logutil.BgLogger().Error("failed to load schema diff", zap.Error(err))
 	}
 
+	// 从 metadb 加载所有 StatePublic 的元数据
 	schemas, err := do.fetchAllSchemasWithTables(m)
 	if err != nil {
 		return nil, false, currentSchemaVersion, nil, err
@@ -243,6 +248,7 @@ func (do *Domain) fetchSchemasWithTables(schemas []*model.DBInfo, m *meta.Meta, 
 	for _, di := range schemas {
 		if di.State != model.StatePublic {
 			// schema is not public, can't be used outside.
+			// 注意 db 状态不是 StatePublic 则忽略
 			continue
 		}
 		tables, err := m.ListTables(di.ID)
@@ -260,6 +266,7 @@ func (do *Domain) fetchSchemasWithTables(schemas []*model.DBInfo, m *meta.Meta, 
 		for _, tbl := range tables {
 			if tbl.State != model.StatePublic {
 				// schema is not public, can't be used outside.
+				// 注意 table 状态不是 StatePublic 也忽略
 				continue
 			}
 			infoschema.ConvertCharsetCollateToLowerCaseIfNeed(tbl)
@@ -277,10 +284,13 @@ func (do *Domain) fetchSchemasWithTables(schemas []*model.DBInfo, m *meta.Meta, 
 // Return true if the schema is loaded successfully.
 // Return false if the schema can not be loaded by schema diff, then we need to do full load.
 // The second returned value is the delta updated table and partition IDs.
+// schema diff 传给 builder
 func (do *Domain) tryLoadSchemaDiffs(m *meta.Meta, usedVersion, newVersion int64) (infoschema.InfoSchema, *transaction.RelatedSchemaChange, error) {
 	var diffs []*model.SchemaDiff
+	// 可直接多个增量更新;
 	for usedVersion < newVersion {
 		usedVersion++
+		// 直接从 metadb 中获取 schema diff;
 		diff, err := m.GetSchemaDiff(usedVersion)
 		if err != nil {
 			return nil, nil, err
@@ -325,6 +335,7 @@ func canSkipSchemaCheckerDDL(tp model.ActionType) bool {
 }
 
 // InfoSchema gets the latest information schema from domain.
+// 获取最新的 schema
 func (do *Domain) InfoSchema() infoschema.InfoSchema {
 	return do.infoCache.GetLatest()
 }
@@ -424,6 +435,7 @@ func (do *Domain) Reload() error {
 		// loaded newer schema
 		if oldSchemaVersion < is.SchemaMetaVersion() {
 			// Update self schema version to etcd.
+			// 更新 etcd 中自己的 schema 版本;
 			err = do.ddl.SchemaSyncer().UpdateSelfVersion(context.Background(), is.SchemaMetaVersion())
 			if err != nil {
 				logutil.BgLogger().Info("update self version failed",
@@ -583,6 +595,7 @@ func (do *Domain) topologySyncerKeeper() {
 	}
 }
 
+// worker 在此尝试更新 schema
 func (do *Domain) loadSchemaInLoop(ctx context.Context, lease time.Duration) {
 	defer util.Recover(metrics.LabelDomain, "loadSchemaInLoop", nil, true)
 	// Lease renewal can run at any frequency.
@@ -603,6 +616,7 @@ func (do *Domain) loadSchemaInLoop(ctx context.Context, lease time.Duration) {
 				logutil.BgLogger().Error("reload schema in loop failed", zap.Error(err))
 			}
 		case _, ok := <-syncer.GlobalVersionCh():
+			// watch 全局schema version 变更通知，加速通知;
 			err := do.Reload()
 			if err != nil {
 				logutil.BgLogger().Error("reload schema in loop failed", zap.Error(err))
@@ -1453,6 +1467,7 @@ func (do *Domain) updateStatsWorker(ctx sessionctx.Context, owner owner.Manager)
 			return
 			// This channel is sent only by ddl owner.
 		case t := <-statsHandle.DDLEventCh():
+			// 只用于统计？
 			err := statsHandle.HandleDDLEvent(t)
 			if err != nil {
 				logutil.BgLogger().Debug("handle ddl event failed", zap.Error(err))

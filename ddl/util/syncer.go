@@ -177,6 +177,7 @@ func (s *schemaVersionSyncer) Init(ctx context.Context) error {
 	}
 	s.storeSession(session)
 
+	// globalVerCh 监控 DDLGlobalSchemaVersion；
 	s.mu.Lock()
 	s.mu.globalVerCh = s.etcdCli.Watch(ctx, DDLGlobalSchemaVersion)
 	s.mu.Unlock()
@@ -231,6 +232,7 @@ func (s *schemaVersionSyncer) Restart(ctx context.Context) error {
 }
 
 // GlobalVersionCh implements SchemaSyncer.GlobalVersionCh interface.
+// 通过 s.mu.globalVerCh watch 全局version 变更;
 func (s *schemaVersionSyncer) GlobalVersionCh() clientv3.WatchChan {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -238,6 +240,7 @@ func (s *schemaVersionSyncer) GlobalVersionCh() clientv3.WatchChan {
 }
 
 // WatchGlobalSchemaVer implements SchemaSyncer.WatchGlobalSchemaVer interface.
+// 异步观察 etcd DDLGlobalSchemaVersion，利用了 watch 机制通知 globalVerCh；
 func (s *schemaVersionSyncer) WatchGlobalSchemaVer(ctx context.Context) {
 	startTime := time.Now()
 	// Make sure the globalVerCh doesn't receive the information of 'close' before we finish the rewatch.
@@ -259,6 +262,7 @@ func (s *schemaVersionSyncer) WatchGlobalSchemaVer(ctx context.Context) {
 }
 
 // UpdateSelfVersion implements SchemaSyncer.UpdateSelfVersion interface.
+// 更新 etcd DDLAllSchemaVersions 中自己的版本号，这个全局存储只是为了方便查看？
 func (s *schemaVersionSyncer) UpdateSelfVersion(ctx context.Context, version int64) error {
 	startTime := time.Now()
 	ver := strconv.FormatInt(version, 10)
@@ -270,6 +274,7 @@ func (s *schemaVersionSyncer) UpdateSelfVersion(ctx context.Context, version int
 }
 
 // OwnerUpdateGlobalVersion implements SchemaSyncer.OwnerUpdateGlobalVersion interface.
+// 直接更新 etcd 的 {DDLGlobalSchemaVersion, ver} 进行元数据版本变更的通知；
 func (s *schemaVersionSyncer) OwnerUpdateGlobalVersion(ctx context.Context, version int64) error {
 	startTime := time.Now()
 	ver := strconv.FormatInt(version, 10)
@@ -377,6 +382,7 @@ func (s *schemaVersionSyncer) OwnerCheckAllVersions(ctx context.Context, latestV
 			return err
 		}
 
+		// etcd DDLAllSchemaVersions 下有所有节点的 version?
 		resp, err := s.etcdCli.Get(ctx, DDLAllSchemaVersions, clientv3.WithPrefix())
 		if err != nil {
 			logutil.BgLogger().Info("[ddl] syncer check all versions failed, continue checking.", zap.Error(err))

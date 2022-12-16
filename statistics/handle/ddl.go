@@ -182,6 +182,7 @@ func (h *Handle) DDLEventCh() chan *util.Event {
 
 // insertTableStats2KV inserts a record standing for a new table to stats_meta and inserts some records standing for the
 // new columns and indices which belong to this table.
+// 更新 stats_meta；
 func (h *Handle) insertTableStats2KV(info *model.TableInfo, physicalID int64) (err error) {
 	statsVer := uint64(0)
 	defer func() {

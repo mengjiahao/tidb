@@ -259,6 +259,7 @@ type MultiSchemaInfo struct {
 }
 
 // Job is for a DDL operation.
+// DDL job 定义
 type Job struct {
 	ID         int64         `json:"id"`
 	Type       ActionType    `json:"type"`
@@ -292,7 +293,7 @@ type Job struct {
 	DependencyID int64 `json:"dependency_id"`
 	// Query string of the ddl job.
 	Query      string       `json:"query"`
-	BinlogInfo *HistoryInfo `json:"binlog"`
+	BinlogInfo *HistoryInfo `json:"binlog"` // DDL Binlog 怎么用？
 
 	// Version indicates the DDL job version. For old jobs, it will be 0.
 	Version int64 `json:"version"`
@@ -312,6 +313,7 @@ type Job struct {
 
 // FinishTableJob is called when a job is finished.
 // It updates the job's state information and adds tblInfo to the binlog.
+// 更新 JobState (只是改内存态，没有修改 metadb), TableInfo 信息写入 binlog;
 func (job *Job) FinishTableJob(jobState JobState, schemaState SchemaState, ver int64, tblInfo *TableInfo) {
 	job.State = jobState
 	job.SchemaState = schemaState
@@ -441,6 +443,8 @@ func (job *Job) hasDependentSchema(other *Job) (bool, error) {
 	return false, nil
 }
 
+// 依赖关系 是 冲突关系？
+// 为什么 job 上有 schema_id 与 table_id，用于冲突检测；
 // IsDependentOn returns whether the job depends on "other".
 // How to check the job depends on "other"?
 // 1. The two jobs handle the same database when one of the two jobs is an ActionDropSchema or ActionCreateSchema type.
@@ -620,6 +624,7 @@ type SchemaDiff struct {
 }
 
 // AffectedOption is used when a ddl affects multi tables.
+// 只有 id 信息？
 type AffectedOption struct {
 	SchemaID    int64 `json:"schema_id"`
 	TableID     int64 `json:"table_id"`
